@@ -1,0 +1,18 @@
+﻿services:
+  cryptohub-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cryptohub_app
+    ports:
+      - '4000:4000'
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+    restart: unless-stopped
+    networks:
+      - cryptohub-network
+
+networks:
+  cryptohub-network:
+    driver: bridge
