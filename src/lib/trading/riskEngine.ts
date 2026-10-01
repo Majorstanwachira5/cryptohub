@@ -34,6 +34,15 @@ export function validateTradeRisk(params: RiskCheckParams): RiskCheckResult {
 
   const balance = db.getBalance("REAL");
 
+  // 0. Account must be funded
+  if (balance.equity <= 0) {
+    return {
+      allowed: false,
+      error:
+        "REAL ACCOUNT RISK VIOLATION: Account equity is $0.00. Deposit capital before opening live positions.",
+    };
+  }
+
   // 1. Mandatory Stop Loss
   if (!params.stopLoss || params.stopLoss <= 0) {
     return {

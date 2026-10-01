@@ -26,6 +26,7 @@ class DatabaseStore {
     marginUsed: 0.0,
     freeMargin: 10000.0,
     marginLevelPct: 9999,
+    totalDeposited: 10000.0,
     updatedAt: new Date().toISOString(),
   };
 
@@ -46,58 +47,23 @@ class DatabaseStore {
     },
   ];
 
-  // 2. ISOLATED REAL ACCOUNT ($10,000 Initial Verified Deposit)
+  // 2. ISOLATED REAL ACCOUNT (Unfunded — $0.00 until the user deposits)
   private realBalance: Balance = {
     userId: "usr_quant_01",
     accountType: "REAL",
     currency: "USDT",
-    availableBalance: 10000.0,
-    equity: 10520.0,
-    marginUsed: 541.25,
-    freeMargin: 9978.75,
-    marginLevelPct: 1943.65,
+    availableBalance: 0.0,
+    equity: 0.0,
+    marginUsed: 0.0,
+    freeMargin: 0.0,
+    marginLevelPct: 9999,
+    totalDeposited: 0.0,
     updatedAt: new Date().toISOString(),
   };
 
-  private realTrades: Trade[] = [
-    {
-      id: "trd_real_01",
-      userId: "usr_quant_01",
-      accountType: "REAL",
-      symbol: "EURUSD",
-      assetClass: "FOREX",
-      direction: "LONG",
-      orderType: "MARKET",
-      status: "OPEN",
-      entryPrice: 1.0825,
-      currentPrice: 1.0858,
-      size: 2.5, // 2.5 standard lots
-      leverage: 50,
-      margin: 541.25,
-      stopLoss: 1.079, // Mandatory Stop Loss enforced
-      takeProfit: 1.0895, // Strict 1:2.0 R:R
-      liquidationPrice: 1.061,
-      pnl: 520.0,
-      pips: 33.0,
-      rationale: "Real Capital: Strict 60/40 Risk Model Enforced (Risk 1.5% of Equity)",
-      openedAt: new Date(Date.now() - 1 * 3600000).toISOString(),
-    },
-  ];
+  private realTrades: Trade[] = [];
 
-  private realLedger: LedgerEntry[] = [
-    {
-      id: "led_real_dep01",
-      userId: "usr_quant_01",
-      accountType: "REAL",
-      type: "DEPOSIT",
-      amount: 10000.0,
-      currency: "USDT",
-      balanceAfter: 10000.0,
-      txHash: "0x8f3c1a938b81920ceb7713847291a084620f4b30c6a858e932402ba69d30fe9b",
-      description: "Verified On-Chain USDT-ERC20 Institutional Deposit",
-      createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
-    },
-  ];
+  private realLedger: LedgerEntry[] = [];
 
   private predictions: PredictionResult[] = [];
   private totalPlatformVolume: number = 8450200.0;
@@ -266,6 +232,8 @@ class DatabaseStore {
 
     targetBalance.availableBalance =
       Math.round((targetBalance.availableBalance + amount) * 100) / 100;
+    targetBalance.totalDeposited =
+      Math.round((targetBalance.totalDeposited + amount) * 100) / 100;
 
     this.addLedgerEntry(
       {
@@ -288,6 +256,7 @@ class DatabaseStore {
     this.demoBalance.marginUsed = 0.0;
     this.demoBalance.freeMargin = 10000.0;
     this.demoBalance.marginLevelPct = 9999;
+    this.demoBalance.totalDeposited = 10000.0;
     this.demoTrades = [];
 
     this.addLedgerEntry(

@@ -27,6 +27,7 @@ export interface Balance {
   marginUsed: number;
   freeMargin: number;
   marginLevelPct: number;
+  totalDeposited: number;
   updatedAt: string;
 }
 

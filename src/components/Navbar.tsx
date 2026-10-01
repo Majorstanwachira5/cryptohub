@@ -33,17 +33,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   onGoHome,
   activeSymbol,
 }) => {
-  const equity = balance?.equity ?? (accountType === "DEMO" ? 10000 : 10000);
-  const available = balance?.availableBalance ?? (accountType === "DEMO" ? 10000 : 10000);
+  const isDemo = accountType === "DEMO";
+
+  const equity = balance?.equity ?? (isDemo ? 10000 : 0);
+  const available = balance?.availableBalance ?? (isDemo ? 10000 : 0);
   const marginUsed = balance?.marginUsed ?? 0;
   const freeMargin = balance?.freeMargin ?? available;
   const marginLevel = balance?.marginLevelPct ?? 0;
 
-  // Baseline is always $10,000 (both DEMO and REAL initial deposit)
-  const BASELINE = 10000;
+  // DEMO is compared against its fixed $10,000 virtual allocation.
+  // REAL is compared against capital actually deposited, so it starts at $0.
+  const BASELINE = isDemo ? 10000 : balance?.totalDeposited ?? 0;
   const balanceDelta = available - BASELINE;
-
-  const isDemo = accountType === "DEMO";
 
   return (
     <header className="border-b border-border bg-[#0d121c]/95 backdrop-blur-md sticky top-0 z-40 px-4 py-2.5">
@@ -198,9 +199,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={onOpenDeposit}
               className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-extrabold px-3.5 py-1.5 rounded-lg text-xs shadow-lg shadow-emerald-500/25 transition-all active:scale-95"
+              title="Deposit capital into your live account"
             >
               <ArrowDownToLine className="w-4 h-4" />
-              Deposit Capital
+              {available > 0 ? "Deposit Capital" : "Fund Account"}
             </button>
           )}
 

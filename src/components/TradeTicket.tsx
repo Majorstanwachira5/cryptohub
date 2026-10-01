@@ -68,7 +68,7 @@ export const TradeTicket: React.FC<TradeTicketProps> = ({
       setStopLoss(prefilledPrediction.stopLoss.toString());
       setTakeProfit(prefilledPrediction.takeProfit.toString());
 
-      const userBalance = balance?.availableBalance || 10000;
+      const userBalance = balance?.availableBalance ?? (isReal ? 0 : 10000);
       const opt = calculateOptimalPositionSize(
         userBalance,
         riskPercent,
@@ -114,7 +114,7 @@ export const TradeTicket: React.FC<TradeTicketProps> = ({
   // 60/40 Risk Assistant: Auto calculate position size
   const handleAutoRisk = (percent: number) => {
     setRiskPercent(percent);
-    const userBalance = balance?.availableBalance || 10000;
+    const userBalance = balance?.availableBalance ?? (isReal ? 0 : 10000);
 
     let targetSL = numericSL;
     if (targetSL === 0) {
