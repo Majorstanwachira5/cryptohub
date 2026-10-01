@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Balance, AccountType } from "@/types";
+import Link from "next/link";
 import {
   Wallet,
   ArrowDownToLine,
@@ -10,6 +11,8 @@ import {
   RotateCcw,
   Home,
   ShieldCheck,
+  LogIn,
+  BookOpen,
 } from "lucide-react";
 
 interface NavbarProps {
@@ -214,6 +217,24 @@ export const Navbar: React.FC<NavbarProps> = ({
             <FileText className="w-3.5 h-3.5 text-cyan-400" />
             Ledger
           </button>
+
+          <Link
+            href="/api-docs"
+            className="flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-cyan-400 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all"
+            title="Open Interactive Swagger OpenAPI Documentation"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            API Docs
+          </Link>
+
+          <Link
+            href="/auth"
+            className="flex items-center gap-1.5 bg-cyan-950/60 hover:bg-cyan-900/70 text-cyan-300 border border-cyan-800/60 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            title="Access Account Login & Registration"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            Auth
+          </Link>
 
           <button
             onClick={onGoHome}
