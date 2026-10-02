@@ -8,6 +8,7 @@ import { AssetSelector } from "@/components/AssetSelector";
 import { TradingViewChart } from "@/components/TradingViewChart";
 import { TradeTicket } from "@/components/TradeTicket";
 import { PredictionPanel } from "@/components/PredictionPanel";
+import { AnalysisPanel } from "@/components/AnalysisPanel";
 import { PositionsTable } from "@/components/PositionsTable";
 import { DepositModal } from "@/components/DepositModal";
 import { LedgerModal } from "@/components/LedgerModal";
@@ -20,6 +21,7 @@ import {
   User,
   Trade,
   PredictionResult,
+  AnalysisReport,
   AccountType,
 } from "@/types";
 import confetti from "canvas-confetti";
@@ -39,6 +41,8 @@ function TradingPlatformContent() {
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [predictionLoading, setPredictionLoading] = useState<boolean>(false);
   const [prefilledPrediction, setPrefilledPrediction] = useState<PredictionResult | null>(null);
+  const [analysis, setAnalysis] = useState<AnalysisReport | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
 
   // Guard set to prevent duplicate auto-close calls for the same trade
   const closingTradeIds = React.useRef<Set<string>>(new Set());
@@ -122,17 +126,48 @@ function TradingPlatformContent() {
     [selectedAsset.symbol, selectedAsset.currentPrice, timeframe]
   );
 
+  // Fetch the full analysis report (indicators, structure, sizing, replay stats)
+  const fetchAnalysis = useCallback(async (silent: boolean = false) => {
+    if (!silent) setAnalysisLoading(true);
+    try {
+      const curPrice = selectedAssetRef.current?.currentPrice || selectedAsset.currentPrice;
+      const currentSym = selectedAssetRef.current?.symbol || selectedAsset.symbol;
+      const activeAcct = accountTypeRef.current;
+      const res = await fetch(
+        `/api/analysis?symbol=${currentSym}&timeframe=${timeframe}&account_type=${activeAcct}&current_price=${curPrice}`
+      );
+      if (!res.ok) throw new Error(`Analysis request failed: ${res.status}`);
+      const data = await res.json();
+      setAnalysis(data);
+    } catch (err) {
+      console.error("Failed to fetch analysis:", err);
+    } finally {
+      if (!silent) setAnalysisLoading(false);
+    }
+  }, [selectedAsset.symbol, selectedAsset.currentPrice, timeframe]);
+
   // Initial and on-account-switch sync
   useEffect(() => {
     fetchBalanceAndUser(accountType);
     fetchPositions(accountType);
     fetchPrediction(false);
-  }, [accountType, fetchBalanceAndUser, fetchPositions, fetchPrediction]);
+    fetchAnalysis(false);
+  }, [accountType, fetchBalanceAndUser, fetchPositions, fetchPrediction, fetchAnalysis]);
 
   // Refetch prediction when timeframe or symbol changes
   useEffect(() => {
     fetchPrediction(false);
-  }, [selectedAsset.symbol, timeframe, fetchPrediction]);
+    fetchAnalysis(false);
+  }, [selectedAsset.symbol, timeframe, fetchPrediction, fetchAnalysis]);
+
+  // Silent analysis refresh. Slower than the price feed because the indicator
+  // stack and the strategy replay cost far more than a quote lookup.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchAnalysis(true);
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [fetchAnalysis]);
 
   // Periodic silent refresh of prediction every 10s to keep market confluence fresh
   useEffect(() => {
@@ -594,6 +629,20 @@ function TradingPlatformContent() {
                   onAutoExecute={handleAutoExecutePrediction}
                   asset={selectedAsset}
                   accountType={accountType}
+                />
+
+                <AnalysisPanel
+                  report={analysis}
+                  loading={analysisLoading}
+                  onRefresh={() => fetchAnalysis(false)}
+                  onApplySetup={(pred) => {
+                    const match = assets.find((a) => a.symbol === pred.symbol);
+                    if (match) {
+                      setSelectedAsset(match);
+                      selectedAssetRef.current = match;
+                    }
+                    setPrefilledPrediction(pred);
+                  }}
                 />
               </div>
 

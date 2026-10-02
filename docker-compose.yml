@@ -3,12 +3,23 @@
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
     container_name: cryptohub_app
     ports:
       - '4000:4000'
+    # Runtime configuration, including the Supabase project ref and secrets.
+    # Next.js does not bake server-side env into the standalone output, so the
+    # container has to be handed these explicitly.
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=4000
+      - HOSTNAME=0.0.0.0
     restart: unless-stopped
     networks:
       - cryptohub-network

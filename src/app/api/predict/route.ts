@@ -1,9 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { generateCandleHistory, DEFAULT_ASSETS } from "@/lib/market/assets";
-import { generateQuantitativePrediction } from "@/lib/indicators/technical";
-import { HISTORICAL_BACKTEST_SETUPS } from "@/lib/indicators/backtest";
+import { DEFAULT_ASSETS } from "@/lib/market/assets";
+import { buildAnalysisReport } from "@/lib/analysis";
+import {
+  DEFAULT_BACKTEST_CONFIG,
+  runBacktest,
+} from "@/lib/indicators/backtestEngine";
 import { db } from "@/lib/db";
-import { AssetClass, AccountType } from "@/types";
+import { AccountType, AssetClass, BacktestSummary, PredictionResult } from "@/types";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Replay results are cached per symbol. The series is seeded from the symbol,
+ * not the clock, so a cached result stays valid for the life of the process
+ * and repeated requests do not re-run the whole sample.
+ */
+const replayCache = new Map<string, BacktestSummary>();
+
+function getReplay(symbol: string, assetClass: AssetClass, digits: number): BacktestSummary {
+  const key = `${symbol}:${digits}`;
+  const cached = replayCache.get(key);
+  if (cached) return cached;
+
+  const summary = runBacktest({
+    ...DEFAULT_BACKTEST_CONFIG,
+    symbol,
+    assetClass,
+    digits,
+    volatility: assetClass === "FOREX" ? 0.003 : 0.015,
+  });
+  replayCache.set(key, summary);
+  return summary;
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -12,15 +40,13 @@ export async function GET(request: NextRequest) {
   const mode = searchParams.get("mode"); // "backtest" | "live"
   const accountType = (searchParams.get("account_type") || "DEMO") as AccountType;
 
-  // Check if backtest mode requested
+  const asset = DEFAULT_ASSETS.find((a) => a.symbol === symbol) || DEFAULT_ASSETS[0];
+
+  // Backtest mode returns the measured replay, not a curated example.
   if (mode === "backtest") {
-    const matchingBacktest =
-      HISTORICAL_BACKTEST_SETUPS.find((b) => b.symbol === symbol) ||
-      HISTORICAL_BACKTEST_SETUPS[0];
-    return NextResponse.json({
-      backtest: matchingBacktest,
-      allSetups: HISTORICAL_BACKTEST_SETUPS,
-    });
+    return NextResponse.json(
+      getReplay(asset.symbol, asset.assetClass as AssetClass, asset.digits)
+    );
   }
 
   // Check if admin has set an override
@@ -29,24 +55,79 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(override);
   }
 
-  const asset = DEFAULT_ASSETS.find((a) => a.symbol === symbol) || DEFAULT_ASSETS[0];
   const priceParam = searchParams.get("current_price");
   const actualPrice = priceParam ? parseFloat(priceParam) : asset.currentPrice;
 
-  const candles = generateCandleHistory(
-    actualPrice,
-    asset.assetClass === "FOREX" ? 0.003 : 0.015,
-    120
+  // The quick signal is a view of the same report the Analysis Engine renders,
+  // so the two panels can never contradict each other.
+  const report = buildAnalysisReport({
+    symbol: asset.symbol,
+    timeframe,
+    accountType: accountType === "REAL" ? "REAL" : "DEMO",
+    currentPrice: actualPrice,
+    includeBacktest: false,
+  });
+
+  const replay = getReplay(asset.symbol, asset.assetClass as AssetClass, asset.digits);
+
+  const direction = report.bias === "BEARISH" ? "SHORT" : "LONG";
+  const atr = report.volatility.atr;
+  const fallbackStop = Number(
+    (direction === "LONG" ? report.price - atr * 1.5 : report.price + atr * 1.5).toFixed(
+      report.digits
+    )
+  );
+  const fallbackTarget = Number(
+    (direction === "LONG" ? report.price + atr * 3 : report.price - atr * 3).toFixed(
+      report.digits
+    )
   );
 
-  const prediction = generateQuantitativePrediction(
-    candles,
-    asset.symbol,
-    asset.assetClass as AssetClass,
-    timeframe,
-    accountType,
-    actualPrice
-  );
+  const rsiSignal = report.signals.find((s) => s.id === "rsi");
+  const macdSignal = report.signals.find((s) => s.id === "macd");
+
+  const prediction: PredictionResult = {
+    id: `pred_${Date.now()}`,
+    symbol: report.symbol,
+    assetClass: report.assetClass,
+    timeframe: report.timeframe,
+    direction,
+    confidence: report.confidence,
+    entryPrice: report.price,
+    takeProfit: report.setup?.takeProfit ?? fallbackTarget,
+    stopLoss: report.setup?.stopLoss ?? fallbackStop,
+    riskRewardRatio: `1:${(report.setup?.riskRewardRatio ?? 2).toFixed(1)}`,
+    winRateEstimate:
+      replay.totalTrades > 0
+        ? `${replay.winRate}% over ${replay.totalTrades} replayed trades`
+        : "insufficient replay sample",
+    indicators: {
+      rsi: rsiSignal ? Number(rsiSignal.value) : 50,
+      rsiSignal:
+        rsiSignal?.bias === "BULLISH"
+          ? "OVERSOLD"
+          : rsiSignal?.bias === "BEARISH"
+            ? "OVERBOUGHT"
+            : "NEUTRAL",
+      macd: {
+        macdLine: 0,
+        signalLine: 0,
+        histogram: macdSignal?.strength ?? 0,
+        cross:
+          macdSignal?.bias === "BULLISH"
+            ? "BULLISH_CROSS"
+            : macdSignal?.bias === "BEARISH"
+              ? "BEARISH_CROSS"
+              : "NEUTRAL",
+      },
+      ema50: report.trend.ema50,
+      ema200: report.trend.ema200,
+      emaTrend:
+        report.trend.ema50 > report.trend.ema200 ? "GOLDEN_ALIGNMENT" : "DEATH_ALIGNMENT",
+    },
+    rationale: `${report.verdict.replace("_", " ")} on ${report.timeframe} — confluence ${report.confluenceScore > 0 ? "+" : ""}${report.confluenceScore} with ${report.confidence}% confidence and ${report.agreement}% signal agreement. ${report.trend.description}`,
+    createdAt: new Date().toISOString(),
+  };
 
   db.savePrediction(prediction);
 
@@ -80,7 +161,7 @@ export async function POST(request: NextRequest) {
       takeProfit: takeProfit || 67500,
       stopLoss: stopLoss || 63200,
       riskRewardRatio: "1:2.3",
-      winRateEstimate: "68%",
+      winRateEstimate: "see /api/analysis",
       indicators: {
         rsi: 42,
         rsiSignal: "NEUTRAL" as const,

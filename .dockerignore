@@ -5,5 +5,8 @@
 README.md
 *.log
 *.md
+# Secrets never enter the build context. The NEXT_PUBLIC_* values the client
+# bundle needs are passed as build args instead (see Dockerfile).
+.env
 .env*.local
 docker-compose*.yml

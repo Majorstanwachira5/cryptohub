@@ -92,6 +92,168 @@ export interface IndicatorMetrics {
   emaTrend: "GOLDEN_ALIGNMENT" | "DEATH_ALIGNMENT" | "NEUTRAL";
 }
 
+export type Bias = "BULLISH" | "BEARISH" | "NEUTRAL";
+
+export interface IndicatorSignal {
+  id: string;
+  label: string;
+  bias: Bias;
+  /** Signed strength in the range -1..1. Negative is bearish. */
+  strength: number;
+  /** Weight of this signal in the confluence score. */
+  weight: number;
+  value: string;
+  detail: string;
+}
+
+export interface VolatilityProfile {
+  atr: number;
+  atrPercent: number;
+  /** ATR expressed as a percentage of price. */
+  regime: "COMPRESSED" | "NORMAL" | "ELEVATED" | "EXTREME";
+  bollinger: {
+    upper: number;
+    middle: number;
+    lower: number;
+    bandwidth: number;
+    /** Where price sits within the bands: 0 = lower, 1 = upper. */
+    percentB: number;
+  };
+  description: string;
+}
+
+export interface PriceLevel {
+  price: number;
+  kind: "SUPPORT" | "RESISTANCE";
+  /** How many swing pivots clustered at this level. */
+  touches: number;
+  strength: "WEAK" | "MODERATE" | "STRONG";
+}
+
+export interface TrendProfile {
+  adx: number;
+  plusDI: number;
+  minusDI: number;
+  /** ADX above 25 is conventionally a trending market. */
+  regime: "TRENDING" | "RANGING" | "EMERGING";
+  ema50: number;
+  ema200: number;
+  emaSpreadPercent: number;
+  description: string;
+}
+
+export interface TimeframeConfluence {
+  timeframe: string;
+  bias: Bias;
+  score: number;
+  candles: number;
+}
+
+export interface AnalysisReport {
+  symbol: string;
+  assetClass: AssetClass;
+  timeframe: string;
+  accountType: AccountType;
+  generatedAt: string;
+  price: number;
+  digits: number;
+
+  /** Aggregate confluence in the range -100..100. */
+  confluenceScore: number;
+  bias: Bias;
+  /** 0..100. Share of weighted signals agreeing with the resolved bias. */
+  agreement: number;
+  /** 0..100, honest measure of signal strength. Not a win-rate promise. */
+  confidence: number;
+  verdict: "STRONG_LONG" | "LEAN_LONG" | "NEUTRAL" | "LEAN_SHORT" | "STRONG_SHORT";
+
+  signals: IndicatorSignal[];
+  trend: TrendProfile;
+  volatility: VolatilityProfile;
+  levels: PriceLevel[];
+  multiTimeframe: TimeframeConfluence[];
+
+  /** Derived only when the account has capital and a directional bias exists. */
+  setup: TradeSetup | null;
+
+  /** Live tally of this account's own closed trades. Null when none. */
+  performance: AccountPerformance | null;
+
+  /** Aggregate of every completed walk-forward backtest run for this symbol. */
+  backtest: BacktestSummary | null;
+
+  notes: string[];
+}
+
+export interface TradeSetup {
+  direction: TradeDirection;
+  entry: number;
+  stopLoss: number;
+  takeProfit: number;
+  riskRewardRatio: number;
+  riskAmount: number;
+  rewardAmount: number;
+  size: number;
+  sizeUnit: "LOTS" | "UNITS";
+  /** Percent of account equity at risk if the stop is hit. */
+  riskPercent: number;
+  marginRequired: number;
+  leverage: number;
+  warnings: string[];
+}
+
+export interface AccountPerformance {
+  accountType: AccountType;
+  closedTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  netPnl: number;
+  grossProfit: number;
+  grossLoss: number;
+  profitFactor: number | null;
+  averageWin: number;
+  averageLoss: number;
+  largestWin: number;
+  largestLoss: number;
+  maxDrawdown: number;
+}
+
+export interface BacktestTrade {
+  direction: TradeDirection;
+  entryPrice: number;
+  exitPrice: number;
+  entryTime: number;
+  exitTime: number;
+  outcome: "WIN" | "LOSS" | "BREAKEVEN";
+  pnlPercent: number;
+  barsHeld: number;
+  exitReason: "TARGET" | "STOP" | "TIME";
+}
+
+export interface BacktestSummary {
+  symbol: string;
+  strategy: string;
+  timeframes: string[];
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  breakevens: number;
+  winRate: number;
+  netPnlPercent: number;
+  averageWinPercent: number;
+  averageLossPercent: number;
+  profitFactor: number | null;
+  expectancyPercent: number;
+  maxDrawdownPercent: number;
+  /** Fraction of long trades that won, for directional bias detection. */
+  longWinRate: number;
+  shortWinRate: number;
+  perTimeframe: Record<string, { trades: number; winRate: number; netPnlPercent: number }>;
+  methodology: string;
+  disclaimer: string;
+}
+
 export interface PredictionResult {
   id: string;
   symbol: string;
@@ -111,23 +273,6 @@ export interface PredictionResult {
   backtestOutcome?: "WIN" | "LOSS";
   isAdminOverride?: boolean;
   createdAt: string;
-}
-
-export interface BacktestSetup {
-  id: string;
-  title: string;
-  date: string;
-  symbol: string;
-  assetClass: AssetClass;
-  direction: TradeDirection;
-  entryPrice: number;
-  takeProfit: number;
-  stopLoss: number;
-  outcome: "WIN" | "LOSS";
-  pnlPercent: number;
-  strategyWinRate: string;
-  rationale: string;
-  disclaimer: string;
 }
 
 export interface Candle {
