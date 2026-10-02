@@ -58,7 +58,7 @@ export function calculatePnL(
 }
 
 /**
- * 60/40 Risk Management Position Size Calculator:
+ * Risk-Based Position Size Calculator:
  * Calculates optimal position size to risk exactly X% of user balance if Stop Loss is triggered.
  */
 export function calculateOptimalPositionSize(

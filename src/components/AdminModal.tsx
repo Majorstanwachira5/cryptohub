@@ -161,7 +161,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               <div className="text-lg font-black text-cyan-400">
                 {stats?.averageWinRate || "61.4%"}
               </div>
-              <div className="text-[10px] text-slate-400">60/40 engine target</div>
+              <div className="text-[10px] text-slate-400">Risk engine target</div>
             </div>
           </div>
 

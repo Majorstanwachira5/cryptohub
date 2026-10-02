@@ -1,8 +1,38 @@
-import { User, Balance, Trade, LedgerEntry, PredictionResult, AccountType } from "@/types";
+import {
+  User,
+  Balance,
+  Trade,
+  LedgerEntry,
+  PredictionResult,
+  AccountType,
+  ReferralRecord,
+} from "@/types";
+import { getFxRates } from "@/lib/fx/rates";
+
+/**
+ * Referral reward in USD. Always paid into the REAL account, never DEMO, so
+ * it can never be mistaken for withdrawable trading profit.
+ */
+const REFERRAL_REWARD_USD = Number(process.env.REFERRAL_REWARD_USD || 5);
+
+/**
+ * Derives a stable, human-typeable referral code from a profile id.
+ * Deterministic so the same user always shares the same code.
+ */
+function referralCodeFor(userId: string, email: string): string {
+  const seed = `${userId}:${email}`;
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36).toUpperCase().slice(0, 6).padStart(6, "X");
+}
 
 // In-Memory Database Store with complete DEMO / REAL isolation
 class DatabaseStore {
-  private user: User = {
+  // The stored profile omits referralCode; it is derived on read.
+  private user: Omit<User, "referralCode"> = {
     id: "usr_quant_01",
     email: process.env.DEFAULT_USER_EMAIL || "alex.sterling@quantglobal.com",
     name: process.env.DEFAULT_USER_NAME || "Alex Sterling",
@@ -15,6 +45,10 @@ class DatabaseStore {
     kycStatus: "VERIFIED",
     createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
   };
+
+  // Referral ledger. Kept separate from the ledger entries because a referral
+  // is a relationship, not a movement of money on its own.
+  private referrals: ReferralRecord[] = [];
 
   // 1. ISOLATED DEMO ACCOUNT ($10,000 Virtual Capital)
   private demoBalance: Balance = {
@@ -70,8 +104,18 @@ class DatabaseStore {
   private totalPlatformRevenue: number = 24650.0;
 
   // User
+  private referralCode = "";
+
+  /** Lazily derived so it always matches the current id and email. */
+  private ensureReferralCode(): string {
+    if (!this.referralCode) {
+      this.referralCode = referralCodeFor(this.user.id, this.user.email);
+    }
+    return this.referralCode;
+  }
+
   getUser(): User {
-    return { ...this.user };
+    return { ...this.user, referralCode: this.ensureReferralCode() };
   }
 
   completeRiskQuiz() {
@@ -248,6 +292,95 @@ class DatabaseStore {
 
     this.recalculateEquity(accountType);
     return this.getBalance(accountType);
+  }
+
+  // Referrals
+  getReferralCode(): string {
+    return this.ensureReferralCode();
+  }
+
+  getReferrals(): ReferralRecord[] {
+    return [...this.referrals];
+  }
+
+  getReferralRewardUsd(): number {
+    return REFERRAL_REWARD_USD;
+  }
+
+  /**
+   * Registers a referral and pays the reward.
+   *
+   * Rules, enforced here rather than in the route so they hold for any caller:
+   *  - the code must belong to this account;
+   *  - one reward per referred email, ever;
+   *  - you cannot refer yourself;
+   *  - the reward lands in the REAL account only.
+   */
+  registerReferral(input: {
+    code: string;
+    email: string;
+    name?: string;
+  }): { ok: true; record: ReferralRecord; balance: Balance } | { ok: false; error: string } {
+    const code = (input.code || "").trim().toUpperCase();
+    const email = (input.email || "").trim().toLowerCase();
+
+    if (!code) return { ok: false, error: "A referral code is required." };
+    if (!email || !email.includes("@")) {
+      return { ok: false, error: "A valid email address is required." };
+    }
+    if (code !== this.ensureReferralCode()) {
+      return { ok: false, error: "That referral code is not recognised." };
+    }
+    if (email === this.user.email.toLowerCase()) {
+      return { ok: false, error: "You cannot refer your own account." };
+    }
+
+    const existing = this.referrals.find((r) => r.referredEmail === email);
+    if (existing) {
+      return {
+        ok: false,
+        error: `${email} has already been referred. Each referral is paid once.`,
+      };
+    }
+
+    const record: ReferralRecord = {
+      id: `ref_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      referrerId: this.user.id,
+      referrerEmail: this.user.email,
+      code,
+      referredEmail: email,
+      referredName: (input.name || "").trim() || email.split("@")[0],
+      status: "QUALIFIED",
+      rewardUsd: REFERRAL_REWARD_USD,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.referrals.unshift(record);
+
+    // REAL only. This is real-account credit, so it is deliberately not
+    // mirrored into the demo book.
+    const targetBalance = this.realBalance;
+    targetBalance.availableBalance =
+      Math.round((targetBalance.availableBalance + record.rewardUsd) * 100) / 100;
+
+    this.addLedgerEntry(
+      {
+        type: "REFERRAL_BONUS",
+        amount: record.rewardUsd,
+        currency: "USDT",
+        description: `Referral bonus for ${record.referredEmail} ($${record.rewardUsd.toFixed(2)} USD)`,
+      },
+      "REAL"
+    );
+
+    this.recalculateEquity("REAL");
+
+    return { record, balance: this.getBalance("REAL"), ok: true };
+  }
+
+  /** KES value of the referral reward, for display alongside the USD figure. */
+  referralRewardKes(): number {
+    return Math.round(REFERRAL_REWARD_USD * getFxRates().usdKes * 100) / 100;
   }
 
   resetDemoBalance(): Balance {

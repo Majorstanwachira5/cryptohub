@@ -1,27 +1,52 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { signSession } from "@/lib/auth/jwt";
+import { AccountType } from "@/types";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password, action } = body;
+    const { email, password, action, accountType } = body;
 
-    const user = db.getUser();
+    if (!email || typeof email !== "string" || !email.includes("@")) {
+      return NextResponse.json(
+        { success: false, error: "A valid email address is required." },
+        { status: 400 }
+      );
+    }
 
-    // Generate JWT-like session token
-    const token = `jwt_quant_${Date.now()}_${Buffer.from(email || "trader@cryptohub.io").toString("base64")}`;
+    // Credential verification belongs to Supabase Auth, which runs on the
+    // /auth page. This route issues the platform session for a user that has
+    // already signed in, and deliberately does not pretend to check a
+    // password it has no way to check.
+    const account: AccountType = accountType === "REAL" ? "REAL" : "DEMO";
+    const known = email.toLowerCase() === db.getUser().email.toLowerCase();
+    const user = known ? db.getUser() : { ...db.getUser(), email };
+
+    const token = signSession({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      accountType: account,
+    });
 
     return NextResponse.json({
       success: true,
       token,
-      user: {
-        ...user,
-        email: email || user.email,
-      },
-      message: action === "signup" ? "Account created successfully" : "Logged in successfully",
+      accountType: account,
+      user,
+      message:
+        action === "signup"
+          ? "Account created successfully"
+          : "Session issued successfully",
     });
-  } catch {
-    return NextResponse.json({ success: false, error: "Authentication failed" }, { status: 400 });
+  } catch (error) {
+    console.error("Auth issue failed:", error);
+    return NextResponse.json(
+      { success: false, error: "Could not issue a session. Check the server configuration." },
+      { status: 500 }
+    );
   }
 }
 

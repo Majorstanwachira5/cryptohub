@@ -53,7 +53,7 @@ export const TradeTicket: React.FC<TradeTicketProps> = ({
   const [leverage, setLeverage] = useState<number>(20);
   const [stopLoss, setStopLoss] = useState<string>("");
   const [takeProfit, setTakeProfit] = useState<string>("");
-  const [riskPercent, setRiskPercent] = useState<number>(2); // 2% 60/40 default risk
+  const [riskPercent, setRiskPercent] = useState<number>(2); // 2% default risk
   const [executing, setExecuting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -111,7 +111,7 @@ export const TradeTicket: React.FC<TradeTicketProps> = ({
       : numericSize * asset.currentPrice;
   const marginRequired = notional / leverage;
 
-  // 60/40 Risk Assistant: Auto calculate position size
+  // Risk Assistant: Auto calculate position size
   const handleAutoRisk = (percent: number) => {
     setRiskPercent(percent);
     const userBalance = balance?.availableBalance ?? (isReal ? 0 : 10000);
@@ -260,7 +260,7 @@ export const TradeTicket: React.FC<TradeTicketProps> = ({
           ))}
         </div>
 
-        {/* 60/40 Risk Assistant Presets */}
+        {/* Risk Assistant Presets */}
         <div
           className={`mb-3 border rounded-lg p-2.5 ${
             isReal ? "bg-emerald-950/20 border-emerald-500/30" : "bg-slate-900/90 border-slate-800"
@@ -269,7 +269,7 @@ export const TradeTicket: React.FC<TradeTicketProps> = ({
           <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 mb-1.5">
             <span className="flex items-center gap-1 text-slate-200">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              60/40 Risk Model Cap
+              Risk Model Cap
             </span>
             <span className="text-cyan-400 font-bold">
               {isReal ? "Max 2.0% Enforced" : "Preset Risk %"}

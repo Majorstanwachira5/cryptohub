@@ -23,7 +23,7 @@ export interface RiskCheckResult {
 }
 
 /**
- * Validates real trades against strict 60/40 risk management parameters.
+ * Validates real trades against strict risk management parameters.
  * Demo trades bypass real restrictions to encourage open learning.
  */
 export function validateTradeRisk(params: RiskCheckParams): RiskCheckResult {
@@ -73,7 +73,7 @@ export function validateTradeRisk(params: RiskCheckParams): RiskCheckResult {
     return {
       allowed: false,
       error:
-        "REAL ACCOUNT RISK VIOLATION: Mandatory Take Profit is required to maintain the 60/40 mathematical edge.",
+        "REAL ACCOUNT RISK VIOLATION: Mandatory Take Profit is required to maintain the minimum reward-to-risk requirement.",
     };
   }
 

@@ -52,7 +52,7 @@ export const LandingHero: React.FC<LandingHeroProps> = ({
               Demo vs. Real
             </a>
             <a href="#strategy" className="hover:text-white transition-colors">
-              60/40 Risk Model
+              Risk Model
             </a>
             <a href="#prediction" className="hover:text-white transition-colors">
               Quant Prediction
@@ -140,7 +140,7 @@ export const LandingHero: React.FC<LandingHeroProps> = ({
             className="flex items-center gap-2 bg-slate-800/90 hover:bg-slate-750 text-slate-100 border border-slate-700 px-6 py-3.5 rounded-xl text-sm font-bold shadow-lg transition-all"
           >
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            Trade Real Account (60/40 Risk)
+            Trade Real Account
           </button>
         </div>
       </section>
@@ -205,7 +205,7 @@ export const LandingHero: React.FC<LandingHeroProps> = ({
                   REAL — Live Funds
                 </span>
                 <span className="text-xs text-amber-400 font-bold flex items-center gap-1">
-                  <ShieldCheck className="w-4 h-4" /> 60/40 Risk Guard
+                  <ShieldCheck className="w-4 h-4" /> Risk Guard
                 </span>
               </div>
 
@@ -240,7 +240,7 @@ export const LandingHero: React.FC<LandingHeroProps> = ({
         </div>
       </section>
 
-      {/* 5. The Mathematical Edge (60/40 Model) */}
+      {/* 5. The Mathematical Edge (Risk Model) */}
       <section id="strategy" className="px-6 py-16 max-w-6xl mx-auto">
         <div className="bg-[#101726] border border-slate-800 rounded-2xl p-8 shadow-2xl">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">

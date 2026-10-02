@@ -1,0 +1,70 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { getFxRates, usdToKes } from "@/lib/fx/rates";
+import { ReferralStats } from "@/types";
+
+export const dynamic = "force-dynamic";
+
+function buildStats(): ReferralStats {
+  const fx = getFxRates();
+  const records = db.getReferrals();
+  const rewardUsd = db.getReferralRewardUsd();
+  const totalEarnedUsd = Math.round(
+    records.reduce((a, r) => a + r.rewardUsd, 0) * 100
+  ) / 100;
+
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 4000}`;
+
+  return {
+    code: db.getReferralCode(),
+    rewardPerReferralUsd: rewardUsd,
+    rewardPerReferralKes: usdToKes(rewardUsd),
+    totalReferrals: records.length,
+    qualified: records.filter((r) => r.status === "QUALIFIED").length,
+    pending: records.filter((r) => r.status === "PENDING").length,
+    totalEarnedUsd,
+    totalEarnedKes: usdToKes(totalEarnedUsd),
+    shareUrl: `${baseUrl}/auth?ref=${db.getReferralCode()}`,
+    records,
+  };
+}
+
+export async function GET() {
+  return NextResponse.json({
+    referrals: buildStats(),
+    balance: db.getBalance("REAL"),
+  });
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const result = db.registerReferral({
+      code: body?.code,
+      email: body?.email,
+      name: body?.name,
+    });
+
+    if (!result.ok) {
+      return NextResponse.json({ success: false, error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      reward: {
+        amountUsd: result.record.rewardUsd,
+        amountKes: usdToKes(result.record.rewardUsd),
+        accountType: "REAL" as const,
+      },
+      record: result.record,
+      balance: result.balance,
+      referrals: buildStats(),
+    });
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Invalid referral payload." },
+      { status: 400 }
+    );
+  }
+}

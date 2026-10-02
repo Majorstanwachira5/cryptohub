@@ -9,6 +9,11 @@ import { TradingViewChart } from "@/components/TradingViewChart";
 import { TradeTicket } from "@/components/TradeTicket";
 import { PredictionPanel } from "@/components/PredictionPanel";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
+import { BottomNav, NavSection } from "@/components/BottomNav";
+import { TradesPanel } from "@/components/TradesPanel";
+import { ReferralPanel } from "@/components/ReferralPanel";
+import { ProfilePanel } from "@/components/ProfilePanel";
+import { DisplayCurrency } from "@/lib/fx/rates";
 import { PositionsTable } from "@/components/PositionsTable";
 import { DepositModal } from "@/components/DepositModal";
 import { LedgerModal } from "@/components/LedgerModal";
@@ -22,12 +27,22 @@ import {
   Trade,
   PredictionResult,
   AnalysisReport,
+  ProfileSummary,
+  ReferralStats,
   AccountType,
 } from "@/types";
 import confetti from "canvas-confetti";
 
 function TradingPlatformContent() {
   const [view, setView] = useState<"LANDING" | "TERMINAL">("LANDING");
+  // Section shown inside the terminal. LANDING and HOME are distinct: the
+  // public marketing page is not the same surface as the trading dashboard.
+  const [section, setSection] = useState<NavSection>("HOME");
+  const [currency, setCurrency] = useState<DisplayCurrency>("KES");
+  const [usdKesRate, setUsdKesRate] = useState<number>(129.5);
+  const [profile, setProfile] = useState<(ProfileSummary & { authenticated: boolean }) | null>(null);
+  const [referrals, setReferrals] = useState<ReferralStats | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [accountType, setAccountType] = useState<AccountType>("DEMO");
 
   const [assets, setAssets] = useState<MarketAsset[]>(DEFAULT_ASSETS);
@@ -146,12 +161,41 @@ function TradingPlatformContent() {
     }
   }, [selectedAsset.symbol, selectedAsset.currentPrice, timeframe]);
 
+  // Fetch profile (session, balances, performance, referral summary) and referrals
+  const fetchProfile = useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
+      if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+      const res = await fetch("/api/profile", { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      setProfile(data);
+      setSessionToken((prev) => prev ?? data.session?.token ?? null);
+      if (data.fx?.usdKes) setUsdKesRate(data.fx.usdKes);
+    } catch (err) {
+      console.error("Failed to fetch profile:", err);
+    }
+  }, [sessionToken]);
+
+  const fetchReferrals = useCallback(async () => {
+    try {
+      const res = await fetch("/api/referrals");
+      if (!res.ok) return;
+      const data = await res.json();
+      setReferrals(data.referrals);
+    } catch (err) {
+      console.error("Failed to fetch referrals:", err);
+    }
+  }, []);
+
   // Initial and on-account-switch sync
   useEffect(() => {
     fetchBalanceAndUser(accountType);
     fetchPositions(accountType);
     fetchPrediction(false);
     fetchAnalysis(false);
+    fetchProfile();
+    fetchReferrals();
   }, [accountType, fetchBalanceAndUser, fetchPositions, fetchPrediction, fetchAnalysis]);
 
   // Refetch prediction when timeframe or symbol changes
@@ -381,7 +425,7 @@ function TradingPlatformContent() {
       "info",
       `Switched to ${targetType} Environment`,
       targetType === "REAL"
-        ? "Trading with Live Capital under 60/40 Risk Model."
+        ? "Trading with Live Capital under the strict risk model."
         : "Trading with $10,000.00 Virtual Practice Funds."
     );
   };
@@ -565,7 +609,7 @@ function TradingPlatformContent() {
           onOpenAuth={() => setIsAuthOpen(true)}
         />
       ) : (
-        <main className="min-h-screen flex flex-col bg-[#0b0e14]">
+        <main className="min-h-screen flex flex-col bg-[#0b0e14] pb-16 md:pb-0">
           {/* Top Financial Margin Bar with DEMO/REAL Switcher */}
           <Navbar
             balance={balance}
@@ -576,18 +620,25 @@ function TradingPlatformContent() {
             onResetDemo={handleResetDemo}
             onGoHome={() => setView("LANDING")}
             activeSymbol={selectedAsset.symbol}
+            currency={currency}
+            onToggleCurrency={() =>
+              setCurrency((c) => (c === "KES" ? "USD" : "KES"))
+            }
+            usdKesRate={usdKesRate}
           />
 
-          {/* Asset Selector */}
-          <AssetSelector
-            assets={assets}
-            selectedAsset={selectedAsset}
-            onSelectAsset={(asset) => setSelectedAsset(asset)}
-          />
+          {section === "HOME" && (
+            <>
+              {/* Asset Selector */}
+              <AssetSelector
+                assets={assets}
+                selectedAsset={selectedAsset}
+                onSelectAsset={(asset) => setSelectedAsset(asset)}
+              />
 
-          {/* Main Trading Workspace */}
-          <div className="flex-1 p-3 lg:p-4 space-y-4 max-w-[1920px] w-full mx-auto">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              {/* Main Trading Workspace */}
+              <div className="flex-1 p-3 lg:p-4 space-y-4 max-w-[1920px] w-full mx-auto">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               {/* Chart & Prediction */}
               <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-4">
                 {(() => {
@@ -646,7 +697,7 @@ function TradingPlatformContent() {
                 />
               </div>
 
-              {/* Order Execution Ticket with 60/40 Risk Enforcement */}
+              {/* Order Execution Ticket with Risk Enforcement */}
               <div className="lg:col-span-4 xl:col-span-3">
                 <TradeTicket
                   asset={selectedAsset}
@@ -658,13 +709,70 @@ function TradingPlatformContent() {
               </div>
             </div>
 
-            {/* Positions Table */}
-            <PositionsTable
-              trades={trades}
-              accountType={accountType}
-              onCloseTrade={handleCloseTrade}
+{/* Positions Table */}
+          <PositionsTable
+            trades={trades}
+            accountType={accountType}
+            onCloseTrade={handleCloseTrade}
+          />
+        </div>
+              </>
+            )}
+
+            {section === "TRADES" && (
+              <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto">
+                <TradesPanel
+                  trades={trades}
+                  accountType={accountType}
+                  currency={currency}
+                  onCloseTrade={handleCloseTrade}
+                />
+              </div>
+            )}
+
+            {section === "REFERRAL" && (
+              <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto max-w-3xl">
+                <ReferralPanel
+                  stats={referrals}
+                  currency={currency}
+                  onSubmitted={() => {
+                    fetchReferrals();
+                    fetchProfile();
+                    fetchBalanceAndUser("REAL");
+                    showToast(
+                      "success",
+                      "Referral Reward Credited",
+                      "The bonus was added to your REAL account."
+                    );
+                  }}
+                />
+              </div>
+            )}
+
+            {section === "PROFILE" && (
+              <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto max-w-3xl">
+                <ProfilePanel
+                  profile={profile}
+                  authenticated={profile?.authenticated ?? false}
+                  currency={currency}
+                  trades={trades}
+                  accountType={accountType}
+                />
+              </div>
+            )}
+
+            {/* Icon-only primary navigation, mobile */}
+            <BottomNav
+              active={section}
+              onSelect={(next) => {
+                setSection(next);
+                if (view !== "TERMINAL") setView("TERMINAL");
+              }}
+              tradesBadge={trades.filter(
+                (t) => t.status === "OPEN" && (t.accountType || "DEMO") === accountType
+              ).length}
+              referralBadge={referrals?.totalReferrals ?? 0}
             />
-          </div>
 
           {/* Interactive Modals */}
           <DepositModal
@@ -689,6 +797,7 @@ function TradingPlatformContent() {
             onClose={() => setIsAuthOpen(false)}
             onLoginSuccess={(chosenType) => {
               setAccountType(chosenType);
+              setSection("HOME");
               setView("TERMINAL");
             }}
           />

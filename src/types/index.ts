@@ -15,7 +15,60 @@ export interface User {
   riskTolerancePercent: number;
   hasCompletedRiskQuiz: boolean;
   kycStatus: "UNVERIFIED" | "PENDING" | "VERIFIED";
+  /** Code this user shares. Signing up with it credits the referrer. */
+  referralCode: string;
   createdAt: string;
+}
+
+export type ReferralStatus = "PENDING" | "QUALIFIED";
+
+export interface ReferralRecord {
+  id: string;
+  referrerId: string;
+  referrerEmail: string;
+  /** Stable code that was used, so the audit trail survives an email change. */
+  code: string;
+  referredEmail: string;
+  referredName: string;
+  status: ReferralStatus;
+  /** Always paid in USD, and always into the REAL account. */
+  rewardUsd: number;
+  createdAt: string;
+}
+
+export interface ReferralStats {
+  code: string;
+  rewardPerReferralUsd: number;
+  rewardPerReferralKes: number;
+  totalReferrals: number;
+  qualified: number;
+  pending: number;
+  totalEarnedUsd: number;
+  totalEarnedKes: number;
+  shareUrl: string;
+  records: ReferralRecord[];
+}
+
+export interface ProfileSummary {
+  user: User;
+  session: {
+    /** Raw JWT so the client can present it back on every request. */
+    token: string;
+    issuedAt: number;
+    expiresAt: number;
+  };
+  demo: Balance;
+  real: Balance;
+  fx: {
+    usdKes: number;
+    displayCurrency: "USD" | "KES";
+  };
+  performance: {
+    DEMO: AccountPerformance | null;
+    REAL: AccountPerformance | null;
+  };
+  referrals: ReferralStats;
+  openPositions: number;
 }
 
 export interface Balance {
@@ -63,7 +116,8 @@ export type LedgerEntryType =
   | "TRADE_PROFIT"
   | "TRADE_LOSS"
   | "COMMISSION_FEE"
-  | "DEMO_RESET";
+  | "DEMO_RESET"
+  | "REFERRAL_BONUS";
 
 export interface LedgerEntry {
   id: string;

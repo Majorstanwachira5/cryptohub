@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "CryptoHub | Institutional Crypto & Forex Quantitative Trading Platform",
   description:
-    "High-frequency institutional trading platform for Crypto and Forex markets with algorithmic 60/40 risk management, real-time TradingView charts, and automated quantitative prediction signals.",
+    "High-frequency institutional trading platform for Crypto and Forex markets with algorithmic risk management, real-time TradingView charts, and automated quantitative prediction signals.",
 };
 
 export default function RootLayout({

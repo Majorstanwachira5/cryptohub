@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS public.ledger_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     account_type TEXT NOT NULL CHECK (account_type IN ('DEMO', 'REAL')),
-    type TEXT NOT NULL CHECK (type IN ('DEPOSIT', 'WITHDRAWAL', 'TRADE_PROFIT', 'TRADE_LOSS', 'COMMISSION_FEE', 'DEMO_RESET', 'ADJUSTMENT')),
+    type TEXT NOT NULL CHECK (type IN ('DEPOSIT', 'WITHDRAWAL', 'TRADE_PROFIT', 'TRADE_LOSS', 'COMMISSION_FEE', 'DEMO_RESET', 'ADJUSTMENT', 'REFERRAL_BONUS')),
     amount NUMERIC(18, 4) NOT NULL,
     currency TEXT DEFAULT 'USDT',
     balance_after NUMERIC(18, 4) NOT NULL,
@@ -98,11 +98,31 @@ CREATE TABLE IF NOT EXISTS public.predictions (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 6. REFERRALS
+-- A referral is a relationship plus the reward it paid. Rewards are always
+-- denominated in USD and always settle into the REAL balance.
+CREATE TABLE IF NOT EXISTS public.referrals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    referrer_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    referrer_email TEXT NOT NULL,
+    code TEXT NOT NULL,
+    referred_email TEXT NOT NULL,
+    referred_name TEXT,
+    status TEXT NOT NULL DEFAULT 'QUALIFIED' CHECK (status IN ('PENDING', 'QUALIFIED')),
+    reward_usd NUMERIC(10, 2) NOT NULL DEFAULT 5.00,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    -- One reward per referred email, ever. Enforced in the database so a
+    -- replayed request cannot pay twice.
+    UNIQUE(referrer_id, referred_email)
+);
+
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_trades_user_status ON public.trades(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_trades_symbol ON public.trades(symbol);
 CREATE INDEX IF NOT EXISTS idx_ledger_user_created ON public.ledger_entries(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_predictions_symbol ON public.predictions(symbol, timeframe, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON public.referrals(referrer_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_referrals_code ON public.referrals(code);
 
 -- SEED INITIAL TRADER DEMO PROFILE IF NOT EXISTS
 INSERT INTO public.profiles (id, email, name, role)
@@ -110,8 +130,10 @@ VALUES ('00000000-0000-0000-0000-000000000001', 'trader@cryptohub.io', 'Alex Ste
 ON CONFLICT (email) DO NOTHING;
 
 -- SEED DEMO AND REAL BALANCES
+-- DEMO starts with the $10,000 virtual allocation. REAL starts unfunded at
+-- $0.00: live capital exists only once a deposit is confirmed.
 INSERT INTO public.balances (user_id, account_type, available_balance, equity, free_margin, total_deposited)
 VALUES 
   ('00000000-0000-0000-0000-000000000001', 'DEMO', 10000.00, 10000.00, 10000.00, 10000.00),
-  ('00000000-0000-0000-0000-000000000001', 'REAL', 10000.00, 10000.00, 10000.00, 10000.00)
+  ('00000000-0000-0000-0000-000000000001', 'REAL', 0.00, 0.00, 0.00, 0.00)
 ON CONFLICT (user_id, account_type) DO NOTHING;

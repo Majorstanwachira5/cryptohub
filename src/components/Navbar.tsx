@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Balance, AccountType } from "@/types";
+import { DisplayCurrency, formatMoney, formatSignedMoney } from "@/lib/fx/rates";
 import Link from "next/link";
 import {
   Wallet,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   LogIn,
   BookOpen,
+  RefreshCcw,
 } from "lucide-react";
 
 interface NavbarProps {
@@ -24,6 +26,9 @@ interface NavbarProps {
   onResetDemo: () => void;
   onGoHome: () => void;
   activeSymbol: string;
+  currency: DisplayCurrency;
+  onToggleCurrency: () => void;
+  usdKesRate: number;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,6 +40,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onResetDemo,
   onGoHome,
   activeSymbol,
+  currency,
+  onToggleCurrency,
+  usdKesRate,
 }) => {
   const isDemo = accountType === "DEMO";
 
@@ -121,7 +129,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
             <div className="flex items-center gap-1.5">
               <span className="text-sm sm:text-base font-bold text-white tracking-tight">
-                ${available.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {formatMoney(available, currency)}
               </span>
               {Math.abs(balanceDelta) > 0.01 && (
                 <span
@@ -131,7 +139,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       : "bg-rose-500/20 text-rose-400 border-rose-500/40"
                   }`}
                 >
-                  {balanceDelta >= 0 ? "+" : "-"}${Math.abs(balanceDelta).toFixed(2)}
+                  {formatSignedMoney(balanceDelta, currency)}
                 </span>
               )}
             </div>
@@ -149,7 +157,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 equity >= available ? "text-emerald-400" : "text-rose-400"
               }`}
             >
-              ${equity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatMoney(equity, currency)}
             </span>
           </div>
 
@@ -160,7 +168,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Margin Used
             </span>
             <span className="text-sm font-semibold text-slate-200">
-              ${marginUsed.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatMoney(marginUsed, currency)}
             </span>
           </div>
 
@@ -171,7 +179,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               Free Margin
             </span>
             <span className="text-sm font-semibold text-cyan-400">
-              ${freeMargin.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {formatMoney(freeMargin, currency)}
             </span>
           </div>
 
@@ -189,6 +197,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Quick Action Buttons */}
         <div className="hidden lg:flex items-center gap-2">
+          <button
+            onClick={onToggleCurrency}
+            title={`Switch display currency. 1 USD = ${usdKesRate.toFixed(2)} KES`}
+            className="flex items-center gap-1.5 bg-slate-800/80 hover:bg-slate-700/80 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-black transition-all"
+          >
+            <RefreshCcw className="w-3.5 h-3.5 text-cyan-400" />
+            {currency === "KES" ? "KES" : "USD"}
+          </button>
+
           {isDemo ? (
             <button
               onClick={onResetDemo}

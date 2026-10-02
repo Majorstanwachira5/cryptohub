@@ -23,7 +23,7 @@ export function executeOrder(params: ExecuteOrderParams): {
 } {
   const accountType = params.accountType || "DEMO";
 
-  // 1. Enforce strict 60/40 risk rules on REAL accounts
+  // 1. Enforce strict risk rules on REAL accounts
   const riskCheck = validateTradeRisk({
     accountType,
     symbol: params.symbol,
@@ -115,7 +115,7 @@ export function executeOrder(params: ExecuteOrderParams): {
       rationale:
         params.rationale ||
         (accountType === "REAL"
-          ? "Real Capital 60/40 Strict Ticket Execution"
+          ? "Real Capital Strict Ticket Execution"
           : "Demo Practice Ticket Execution"),
     },
     accountType

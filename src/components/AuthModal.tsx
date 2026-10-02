@@ -166,7 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 className="flex flex-col items-center justify-center p-3 rounded-xl bg-gradient-to-b from-emerald-950/60 to-slate-900 border border-emerald-500/40 hover:border-emerald-400 transition-all text-center"
               >
                 <span className="text-xs font-black text-emerald-400">Launch REAL</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">60/40 Live Capital</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Live Capital</span>
               </button>
             </div>
           </div>

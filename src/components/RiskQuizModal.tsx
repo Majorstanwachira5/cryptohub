@@ -85,7 +85,7 @@ export const RiskQuizModal: React.FC<RiskQuizModalProps> = ({
           {/* Question 1 */}
           <div className="space-y-1.5">
             <label className="font-bold text-slate-200">
-              1. Under the 60/40 Risk Model, what is the maximum permitted balance risk per single trade?
+              1. Under the Risk Model, what is the maximum permitted balance risk per single trade?
             </label>
             <div className="space-y-1">
               {[
