@@ -76,32 +76,37 @@ export const LandingHero: React.FC<LandingHeroProps> = ({
         </div>
       </nav>
 
-      {/* 2. Live Market Ticker Tape */}
-      <div className="border-b border-slate-800/80 bg-[#0a0f1a] py-2 overflow-x-auto">
-        <div className="max-w-7xl mx-auto px-6 flex items-center gap-6 text-xs whitespace-nowrap">
-          <span className="text-[10px] uppercase font-bold text-slate-500 flex items-center gap-1.5">
+      {/* 2. Live Market Ticker Tape — Animated Marquee */}
+      <div className="border-b border-slate-800/80 bg-[#0a0f1a] py-2 overflow-hidden">
+        <div className="flex items-center">
+          <div className="shrink-0 flex items-center gap-2 px-3 border-r border-slate-800 mr-2">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            Live Tickers:
-          </span>
-          {assets.map((asset) => (
-            <div key={asset.symbol} className="flex items-center gap-2">
-              <span className="font-bold text-slate-300">{asset.symbol}</span>
-              <span className="font-semibold text-white">
-                ${asset.currentPrice.toLocaleString("en-US", {
-                  minimumFractionDigits: asset.digits,
-                  maximumFractionDigits: asset.digits,
-                })}
-              </span>
-              <span
-                className={`text-[11px] font-bold flex items-center ${
-                  asset.change24h >= 0 ? "text-emerald-400" : "text-rose-400"
-                }`}
-              >
-                {asset.change24h >= 0 ? "+" : ""}
-                {asset.change24h.toFixed(2)}%
-              </span>
-            </div>
-          ))}
+            <span className="text-[10px] uppercase font-bold text-slate-500 whitespace-nowrap">Live</span>
+          </div>
+          {/* Duplicated ticker list for seamless infinite scroll */}
+          <div className="flex items-center gap-6 text-xs whitespace-nowrap animate-ticker" style={{ willChange: "transform" }}>
+            {[...assets, ...assets].map((asset, idx) => (
+              <div key={`${asset.symbol}-${idx}`} className="flex items-center gap-1.5">
+                <span className="font-extrabold text-slate-300">{asset.symbol}</span>
+                <span className="font-mono font-semibold text-white">
+                  ${asset.currentPrice.toLocaleString("en-US", {
+                    minimumFractionDigits: asset.digits,
+                    maximumFractionDigits: asset.digits,
+                  })}
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    asset.change24h >= 0
+                      ? "text-emerald-400 bg-emerald-950/60"
+                      : "text-rose-400 bg-rose-950/60"
+                  }`}
+                >
+                  {asset.change24h >= 0 ? "▲" : "▼"} {Math.abs(asset.change24h).toFixed(2)}%
+                </span>
+                <span className="text-slate-800 mx-2">·</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

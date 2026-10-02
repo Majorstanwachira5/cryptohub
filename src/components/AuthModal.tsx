@@ -54,9 +54,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-      <div className="bg-[#111726] border border-slate-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+      <div className="bg-[#111726] border border-slate-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 bg-[#0d121e] border-b border-slate-800 flex items-center justify-between">
+        <div className="px-6 py-4 bg-[#0d121e] border-b border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-indigo-500 flex items-center justify-center text-white font-bold text-sm shadow-md">
               CH
@@ -76,7 +76,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
-        <div className="p-6 space-y-4 text-xs">
+        <div className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto">
           {isSignUp && (
             <div>
               <label className="text-slate-400 block mb-1 font-medium">Full Legal Name</label>

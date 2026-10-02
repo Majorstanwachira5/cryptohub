@@ -10,14 +10,19 @@ import { TradeTicket } from "@/components/TradeTicket";
 import { PredictionPanel } from "@/components/PredictionPanel";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
 import { BottomNav, NavSection } from "@/components/BottomNav";
-import { TradesPanel } from "@/components/TradesPanel";
+import { TradesPanel } from "@/components/TradesPanel"; // available for future use
 import { ReferralPanel } from "@/components/ReferralPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
+import { HomeDashboard } from "@/components/HomeDashboard";
+import { MikeTradesChat } from "@/components/MikeTradesChat";
+import { FloatingMikeButton } from "@/components/FloatingMikeButton";
 import { DisplayCurrency } from "@/lib/fx/rates";
 import { PositionsTable } from "@/components/PositionsTable";
 import { DepositModal } from "@/components/DepositModal";
 import { LedgerModal } from "@/components/LedgerModal";
 import { AuthModal } from "@/components/AuthModal";
+import { RiskQuizModal } from "@/components/RiskQuizModal";
+import { AdminModal } from "@/components/AdminModal";
 import { DEFAULT_ASSETS, generateCandleHistory } from "@/lib/market/assets";
 import {
   MarketAsset,
@@ -77,6 +82,11 @@ function TradingPlatformContent() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isDepositOpen, setIsDepositOpen] = useState(false);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
+  const [isRiskQuizOpen, setIsRiskQuizOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+  // Mobile-only trade section tab (controls which panel is visible on small screens)
+  const [mobileTradeTab, setMobileTradeTab] = useState<"chart" | "order" | "signals" | "positions">("chart");
+
 
   const { showToast } = useToast();
 
@@ -609,7 +619,7 @@ function TradingPlatformContent() {
           onOpenAuth={() => setIsAuthOpen(true)}
         />
       ) : (
-        <main className="min-h-screen flex flex-col bg-[#0b0e14] pb-16 md:pb-0">
+        <main className="min-h-screen flex flex-col bg-[#0b0e14] pb-20 md:pb-6 transition-colors duration-200">
           {/* Top Financial Margin Bar with DEMO/REAL Switcher */}
           <Navbar
             balance={balance}
@@ -625,9 +635,39 @@ function TradingPlatformContent() {
               setCurrency((c) => (c === "KES" ? "USD" : "KES"))
             }
             usdKesRate={usdKesRate}
+            activeSection={section}
+            onSelectSection={(sec) => setSection(sec)}
           />
 
           {section === "HOME" && (
+            <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto">
+              <HomeDashboard
+                user={user}
+                balance={balance}
+                profile={profile}
+                referrals={referrals}
+                trades={trades}
+                assets={assets}
+                accountType={accountType}
+                currency={currency}
+                onNavigateToTrade={(targetType, asset) => {
+                  if (targetType) handleSwitchAccount(targetType);
+                  if (asset) {
+                    setSelectedAsset(asset);
+                    selectedAssetRef.current = asset;
+                  }
+                  setSection("TRADE");
+                }}
+                onNavigateToReferrals={() => setSection("REFERRAL")}
+                onNavigateToMike={() => setSection("MIKE_AI")}
+                onOpenDeposit={() => setIsDepositOpen(true)}
+                onResetDemo={handleResetDemo}
+                onCloseTrade={handleCloseTrade}
+              />
+            </div>
+          )}
+
+          {section === "TRADE" && (
             <>
               {/* Asset Selector */}
               <AssetSelector
@@ -636,138 +676,183 @@ function TradingPlatformContent() {
                 onSelectAsset={(asset) => setSelectedAsset(asset)}
               />
 
+              {/* Mobile Sub-Tab Navigation (hidden on desktop) */}
+              <div className="flex items-center gap-0 border-b border-slate-800 bg-[#0d121c] md:hidden overflow-x-auto scrollbar-none">
+                {([
+                  { id: "chart", label: "📊 Chart" },
+                  { id: "order", label: "⚡ Order" },
+                  { id: "signals", label: "🎯 Signals" },
+                  { id: "positions", label: "📋 Positions" },
+                ] as const).map(({ id, label }) => (
+                  <button
+                    key={id}
+                    onClick={() => setMobileTradeTab(id)}
+                    className={`flex-1 min-w-max px-4 py-2.5 text-xs font-bold whitespace-nowrap transition-all border-b-2 ${
+                      mobileTradeTab === id
+                        ? "border-cyan-400 text-cyan-400 bg-cyan-500/5"
+                        : "border-transparent text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               {/* Main Trading Workspace */}
               <div className="flex-1 p-3 lg:p-4 space-y-4 max-w-[1920px] w-full mx-auto">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              {/* Chart & Prediction */}
-              <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-4">
-                {(() => {
-                  const activeSymbolTrade = trades.find(
-                    (t) =>
-                      t.status === "OPEN" &&
-                      t.symbol === selectedAsset.symbol &&
-                      (t.accountType || "DEMO") === accountType
-                  );
-                  const chartStopLoss = activeSymbolTrade?.stopLoss ?? prefilledPrediction?.stopLoss;
-                  const chartTakeProfit = activeSymbolTrade?.takeProfit ?? prefilledPrediction?.takeProfit;
-                  const chartEntryPrice = activeSymbolTrade?.entryPrice ?? selectedAsset.currentPrice;
+                  {/* Chart & Prediction — hidden on mobile if not on chart/signals tab */}
+                  <div className={`lg:col-span-8 xl:col-span-9 flex flex-col gap-4 ${
+                    mobileTradeTab === "chart" || mobileTradeTab === "signals" ? "block" : "hidden md:flex"
+                  }`}>
+                    {(() => {
+                      const activeSymbolTrade = trades.find(
+                        (t) =>
+                          t.status === "OPEN" &&
+                          t.symbol === selectedAsset.symbol &&
+                          (t.accountType || "DEMO") === accountType
+                      );
+                      const chartStopLoss = activeSymbolTrade?.stopLoss ?? prefilledPrediction?.stopLoss;
+                      const chartTakeProfit = activeSymbolTrade?.takeProfit ?? prefilledPrediction?.takeProfit;
+                      const chartEntryPrice = activeSymbolTrade?.entryPrice ?? selectedAsset.currentPrice;
 
-                  return (
-                    <TradingViewChart
+                      return (
+                        <div className={mobileTradeTab === "signals" ? "hidden md:block" : ""}>
+                          <TradingViewChart
+                            asset={selectedAsset}
+                            candles={candles}
+                            stopLoss={chartStopLoss}
+                            takeProfit={chartTakeProfit}
+                            entryPrice={chartEntryPrice}
+                            timeframe={timeframe}
+                            onTimeframeChange={(tf) => setTimeframe(tf)}
+                          />
+                        </div>
+                      );
+                    })()}
+
+                    <PredictionPanel
+                      prediction={prediction}
+                      loading={predictionLoading}
+                      onRefresh={() => fetchPrediction(false)}
+                      onApplyPrediction={(pred) => {
+                        const match = assets.find((a) => a.symbol === pred.symbol);
+                        if (match) {
+                          setSelectedAsset(match);
+                          selectedAssetRef.current = match;
+                        }
+                        setPrefilledPrediction(pred);
+                        setMobileTradeTab("order");
+                      }}
+                      onAutoExecute={handleAutoExecutePrediction}
                       asset={selectedAsset}
-                      candles={candles}
-                      stopLoss={chartStopLoss}
-                      takeProfit={chartTakeProfit}
-                      entryPrice={chartEntryPrice}
-                      timeframe={timeframe}
-                      onTimeframeChange={(tf) => setTimeframe(tf)}
+                      accountType={accountType}
                     />
+
+                    <AnalysisPanel
+                      report={analysis}
+                      loading={analysisLoading}
+                      onRefresh={() => fetchAnalysis(false)}
+                      onApplySetup={(pred) => {
+                        const match = assets.find((a) => a.symbol === pred.symbol);
+                        if (match) {
+                          setSelectedAsset(match);
+                          selectedAssetRef.current = match;
+                        }
+                        setPrefilledPrediction(pred);
+                        setMobileTradeTab("order");
+                      }}
+                    />
+                  </div>
+
+                  {/* Order Execution Ticket with Risk Enforcement */}
+                  <div className={`lg:col-span-4 xl:col-span-3 ${
+                    mobileTradeTab === "order" ? "block" : "hidden md:block"
+                  }`}>
+                    <TradeTicket
+                      asset={selectedAsset}
+                      balance={balance}
+                      accountType={accountType}
+                      onExecuteTrade={handleExecuteTrade}
+                      prefilledPrediction={prefilledPrediction}
+                    />
+                  </div>
+                </div>
+
+                {/* Positions Table — hidden on mobile when not on positions tab */}
+                <div className={mobileTradeTab === "positions" ? "block" : "hidden md:block"}>
+                  <PositionsTable
+                    trades={trades}
+                    accountType={accountType}
+                    onCloseTrade={handleCloseTrade}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+
+          {section === "REFERRAL" && (
+            <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto max-w-3xl">
+              <ReferralPanel
+                stats={referrals}
+                currency={currency}
+                onSubmitted={() => {
+                  fetchReferrals();
+                  fetchProfile();
+                  fetchBalanceAndUser("REAL");
+                  showToast(
+                    "success",
+                    "Referral Reward Credited",
+                    "The bonus was added to your REAL account."
                   );
-                })()}
-
-                <PredictionPanel
-                  prediction={prediction}
-                  loading={predictionLoading}
-                  onRefresh={() => fetchPrediction(false)}
-                  onApplyPrediction={(pred) => {
-                    const match = assets.find((a) => a.symbol === pred.symbol);
-                    if (match) {
-                      setSelectedAsset(match);
-                      selectedAssetRef.current = match;
-                    }
-                    setPrefilledPrediction(pred);
-                  }}
-                  onAutoExecute={handleAutoExecutePrediction}
-                  asset={selectedAsset}
-                  accountType={accountType}
-                />
-
-                <AnalysisPanel
-                  report={analysis}
-                  loading={analysisLoading}
-                  onRefresh={() => fetchAnalysis(false)}
-                  onApplySetup={(pred) => {
-                    const match = assets.find((a) => a.symbol === pred.symbol);
-                    if (match) {
-                      setSelectedAsset(match);
-                      selectedAssetRef.current = match;
-                    }
-                    setPrefilledPrediction(pred);
-                  }}
-                />
-              </div>
-
-              {/* Order Execution Ticket with Risk Enforcement */}
-              <div className="lg:col-span-4 xl:col-span-3">
-                <TradeTicket
-                  asset={selectedAsset}
-                  balance={balance}
-                  accountType={accountType}
-                  onExecuteTrade={handleExecuteTrade}
-                  prefilledPrediction={prefilledPrediction}
-                />
-              </div>
+                }}
+              />
             </div>
+          )}
 
-{/* Positions Table */}
-          <PositionsTable
-            trades={trades}
-            accountType={accountType}
-            onCloseTrade={handleCloseTrade}
+          {section === "PROFILE" && (
+            <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto max-w-3xl">
+              <ProfilePanel
+                profile={profile}
+                authenticated={profile?.authenticated ?? false}
+                currency={currency}
+                trades={trades}
+                accountType={accountType}
+                onOpenLedger={() => setIsLedgerOpen(true)}
+                onOpenDeposit={() => setIsDepositOpen(true)}
+                onToggleCurrency={() =>
+                  setCurrency((c) => (c === "KES" ? "USD" : "KES"))
+                }
+                onLogout={() => {
+                  setView("LANDING");
+                  showToast("info", "Logged Out", "Returned to public overview.");
+                }}
+                onOpenRiskQuiz={() => setIsRiskQuizOpen(true)}
+                onOpenAdmin={() => setIsAdminOpen(true)}
+              />
+            </div>
+          )}
+
+          {section === "MIKE_AI" && (
+            <div className="flex-1 p-2 sm:p-4 max-w-[1920px] w-full mx-auto">
+              <MikeTradesChat />
+            </div>
+          )}
+
+          {/* Floating Mike Trades Chat Button (visible when not on MIKE_AI screen) */}
+          <FloatingMikeButton
+            onClick={() => setSection("MIKE_AI")}
+            visible={section !== "MIKE_AI"}
           />
-        </div>
-              </>
-            )}
 
-            {section === "TRADES" && (
-              <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto">
-                <TradesPanel
-                  trades={trades}
-                  accountType={accountType}
-                  currency={currency}
-                  onCloseTrade={handleCloseTrade}
-                />
-              </div>
-            )}
-
-            {section === "REFERRAL" && (
-              <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto max-w-3xl">
-                <ReferralPanel
-                  stats={referrals}
-                  currency={currency}
-                  onSubmitted={() => {
-                    fetchReferrals();
-                    fetchProfile();
-                    fetchBalanceAndUser("REAL");
-                    showToast(
-                      "success",
-                      "Referral Reward Credited",
-                      "The bonus was added to your REAL account."
-                    );
-                  }}
-                />
-              </div>
-            )}
-
-            {section === "PROFILE" && (
-              <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto max-w-3xl">
-                <ProfilePanel
-                  profile={profile}
-                  authenticated={profile?.authenticated ?? false}
-                  currency={currency}
-                  trades={trades}
-                  accountType={accountType}
-                />
-              </div>
-            )}
-
-            {/* Icon-only primary navigation, mobile */}
-            <BottomNav
-              active={section}
-              onSelect={(next) => {
-                setSection(next);
-                if (view !== "TERMINAL") setView("TERMINAL");
-              }}
+          {/* Android Bottom Navigation (5 sections: HOME | TRADE | REFERRAL | PROFILE | MIKE AI) */}
+          <BottomNav
+            active={section}
+            onSelect={(next) => {
+              setSection(next);
+              if (view !== "TERMINAL") setView("TERMINAL");
+            }}
               tradesBadge={trades.filter(
                 (t) => t.status === "OPEN" && (t.accountType || "DEMO") === accountType
               ).length}
@@ -799,6 +884,34 @@ function TradingPlatformContent() {
               setAccountType(chosenType);
               setSection("HOME");
               setView("TERMINAL");
+            }}
+          />
+
+          <RiskQuizModal
+            isOpen={isRiskQuizOpen}
+            onClose={() => setIsRiskQuizOpen(false)}
+            onSuccess={() => {
+              setIsRiskQuizOpen(false);
+              fetchProfile();
+              showToast(
+                "success",
+                "Risk Model Certified",
+                "Your understanding of the 60/40 risk framework is verified."
+              );
+            }}
+          />
+
+          <AdminModal
+            isOpen={isAdminOpen}
+            onClose={() => setIsAdminOpen(false)}
+            assets={assets}
+            onBroadcastSuccess={() => {
+              fetchPrediction(false);
+              showToast(
+                "success",
+                "Signal Broadcasted",
+                "Live quantitative signal has been broadcast to all terminals."
+              );
             }}
           />
         </main>

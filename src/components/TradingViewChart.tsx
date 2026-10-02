@@ -51,9 +51,12 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     }
 
     const container = chartContainerRef.current;
+    const isMobile = window.innerWidth < 640;
+    const chartHeight = isMobile ? 330 : 480;
+
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 480,
+      height: chartHeight,
       layout: {
         background: { type: ColorType.Solid, color: "#0d131f" },
         textColor: "#94a3b8",
@@ -130,8 +133,10 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     // Resize Observer
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
+        const isMobile = window.innerWidth < 640;
         chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
+          height: isMobile ? 330 : 480,
         });
       }
     };

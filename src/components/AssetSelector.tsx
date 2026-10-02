@@ -90,7 +90,7 @@ export const AssetSelector: React.FC<AssetSelectorProps> = ({
 
       {/* Asset Selection Modal Dropdown */}
       {isOpen && (
-        <div className="absolute top-full left-4 z-50 mt-1 w-80 sm:w-96 rounded-xl bg-[#131a29] border border-slate-700 shadow-2xl p-3 animate-fade-in">
+        <div className="absolute top-full left-2 sm:left-4 z-50 mt-1 w-[calc(100vw-1rem)] max-w-sm rounded-xl bg-[#131a29] border border-slate-700 shadow-2xl p-3 animate-fade-in">
           {/* Search Box */}
           <div className="relative mb-2.5">
             <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />

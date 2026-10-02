@@ -1,4 +1,4 @@
-﻿# Dependencies
+# Dependencies
 /node_modules
 /.pnp
 .pnp.js
@@ -29,3 +29,7 @@ yarn-error.log*
 # TypeScript cache
 *.tsbuildinfo
 next-env.d.ts
+
+# Tooling
+.kilo/
+

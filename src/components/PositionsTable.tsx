@@ -8,6 +8,7 @@ import {
   Clock,
   Layers,
   ShieldCheck,
+  XCircle,
 } from "lucide-react";
 
 interface PositionsTableProps {
@@ -38,9 +39,9 @@ export const PositionsTable: React.FC<PositionsTableProps> = ({
   };
 
   return (
-    <div className="bg-[#0f1422] border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+    <div className="bg-[#0f1422] border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
       {/* Tab Navigation */}
-      <div className="flex flex-wrap items-center justify-between px-4 py-2.5 bg-[#111726] border-b border-slate-800 text-xs gap-2">
+      <div className="flex flex-wrap items-center justify-between px-3 sm:px-4 py-2.5 bg-[#111726] border-b border-slate-800 text-xs gap-2">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setActiveTab("OPEN")}
@@ -51,7 +52,7 @@ export const PositionsTable: React.FC<PositionsTableProps> = ({
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            {accountType} Open Positions ({openPositions.length})
+            <span>Open ({openPositions.length})</span>
           </button>
           <button
             onClick={() => setActiveTab("CLOSED")}
@@ -62,7 +63,7 @@ export const PositionsTable: React.FC<PositionsTableProps> = ({
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
-            {accountType} History ({closedPositions.length})
+            <span>History ({closedPositions.length})</span>
           </button>
         </div>
 
@@ -74,16 +75,111 @@ export const PositionsTable: React.FC<PositionsTableProps> = ({
                 : "bg-cyan-950 text-cyan-300 border-cyan-800"
             }`}
           >
-            {accountType} LEDGER ISOLATED
+            {accountType} LEDGER
           </span>
           <span className="text-[11px] text-slate-500 hidden sm:inline">
-            Real-time Mark-to-Market PnL
+            Mark-to-Market PnL
           </span>
         </div>
       </div>
 
-      {/* Table Content */}
-      <div className="overflow-x-auto">
+      {/* Mobile Card Layout (visible on narrow screens < 768px) */}
+      <div className="md:hidden divide-y divide-slate-800/60 p-2 space-y-2">
+        {displayedTrades.length === 0 ? (
+          <div className="py-8 text-center text-slate-500 text-xs font-normal">
+            {activeTab === "OPEN"
+              ? `No open ${accountType} positions.`
+              : `No closed ${accountType} trade history yet.`}
+          </div>
+        ) : (
+          displayedTrades.map((trade) => {
+            const isProfit = trade.pnl >= 0;
+            const isLong = trade.direction === "LONG";
+            return (
+              <div
+                key={trade.id}
+                className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-black uppercase ${
+                        isLong
+                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
+                          : "bg-rose-500/20 text-rose-400 border border-rose-500/40"
+                      }`}
+                    >
+                      {trade.direction}
+                    </span>
+                    <span className="font-extrabold text-white text-sm">{trade.symbol}</span>
+                    <span className="text-[10px] text-cyan-400 font-bold">{trade.leverage}x</span>
+                  </div>
+
+                  <div className="text-right">
+                    <div
+                      className={`text-sm font-black flex items-center justify-end gap-1 ${
+                        isProfit ? "text-emerald-400" : "text-rose-400"
+                      }`}
+                    >
+                      {isProfit ? (
+                        <TrendingUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <TrendingDown className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isProfit ? "+" : "-"}${Math.abs(trade.pnl).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-900">
+                  <div>
+                    <span className="text-slate-500">Size: </span>
+                    <span className="text-slate-200 font-bold">{trade.size}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Margin: </span>
+                    <span className="text-slate-200 font-bold">${trade.margin.toFixed(2)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Entry: </span>
+                    <span className="text-slate-200">${trade.entryPrice.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Current: </span>
+                    <span className="text-white font-bold">${trade.currentPrice.toLocaleString()}</span>
+                  </div>
+                  {trade.stopLoss && (
+                    <div>
+                      <span className="text-rose-400 font-semibold">SL: </span>
+                      <span className="text-slate-300">${trade.stopLoss}</span>
+                    </div>
+                  )}
+                  {trade.takeProfit && (
+                    <div>
+                      <span className="text-emerald-400 font-semibold">TP: </span>
+                      <span className="text-slate-300">${trade.takeProfit}</span>
+                    </div>
+                  )}
+                </div>
+
+                {activeTab === "OPEN" && (
+                  <button
+                    onClick={() => handleClose(trade)}
+                    disabled={closingId === trade.id}
+                    className="w-full mt-2 bg-slate-800 hover:bg-rose-950/80 hover:text-rose-400 text-slate-300 border border-slate-700 hover:border-rose-800/80 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 active:scale-95"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    <span>{closingId === trade.id ? "Closing..." : "Close Position"}</span>
+                  </button>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop/Tablet Table Layout (hidden on < 768px) */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="bg-[#0d121c] text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
             <tr>

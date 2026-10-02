@@ -92,9 +92,9 @@ export const DepositModal: React.FC<DepositModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-      <div className="bg-[#121827] border border-slate-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+      <div className="bg-[#121827] border border-slate-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#0e1320]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-[#0e1320] shrink-0">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
               <Zap className="w-4 h-4" />
@@ -113,7 +113,7 @@ export const DepositModal: React.FC<DepositModalProps> = ({
         </div>
 
         {/* Method Toggle */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6 overflow-y-auto">
           <div className="flex bg-slate-900 rounded-xl p-1 mb-5 border border-slate-800">
             <button
               onClick={() => setMethod("CRYPTO")}
