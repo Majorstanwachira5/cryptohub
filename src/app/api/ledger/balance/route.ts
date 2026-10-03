@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAccountAccess } from "@/lib/auth/access";
+import { requireAccountAccess, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +12,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const user = db.getUser();
-  const balance = db.getBalance(auth.accountType);
+  // Scoped to the verified token: a caller only ever sees their own book.
+  const userId = platformUserId(auth.identity);
+  const user = db.getUser(userId);
+  const balance = db.getBalance(userId, auth.accountType);
 
   return NextResponse.json({
     user,

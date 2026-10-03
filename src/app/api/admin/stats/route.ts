@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/auth/access";
+import { requireAdmin, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +12,21 @@ export async function GET(request: NextRequest) {
   }
 
   const stats = db.getAdminStats();
-  const trades = db.getTrades();
-  const user = db.getUser();
-  const balance = db.getBalance();
+  // Aggregates across every account. This is the one response that is not
+  // scoped to the caller, and it is reachable only through requireAdmin.
+  const trades = db.getAllTrades();
+  const users = db.getAllUsers();
 
-  return NextResponse.json({ stats, trades, user, balance, requestedBy: auth.identity.user.email });
+  // The requesting administrator's own books, so the admin screen still has a
+  // concrete balance to display alongside the platform totals.
+  const userId = platformUserId(auth.identity);
+
+  return NextResponse.json({
+    stats,
+    trades,
+    users,
+    user: db.getUser(userId),
+    balance: db.getBalance(userId, "DEMO"),
+    requestedBy: auth.identity.user.email,
+  });
 }

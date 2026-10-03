@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { AccountType, Role } from "@/types";
+import { loadState, flushState, saveState, describeStorage } from "@/lib/db/persistence";
 
 /**
  * Password hashing.
@@ -82,16 +83,42 @@ export function validateName(name: string): string | null {
 }
 
 /**
- * In-memory credential store.
+ * Credential store.
  *
- * Passwords live here as salted scrypt hashes and nowhere else. State is
- * process-local, exactly like the rest of the platform's store, so a restart
- * clears accounts — see the note on Supabase persistence in the README of this
- * change.
+ * Passwords live here as salted scrypt hashes and nowhere else, and the file
+ * holds only those hashes. Accounts used to live in process memory, so a
+ * restart deleted every registration and locked every user out permanently.
+ * State is therefore persisted; see `lib/db/persistence` for the write
+ * strategy.
  */
 class CredentialStore {
   private users: CredentialUser[] = [];
   private seeded = false;
+
+  private load(): void {
+    const loaded = loadState<{ users: CredentialUser[] }>("cryptohub-credentials");
+    if (loaded && Array.isArray(loaded.users)) {
+      this.users = loaded.users;
+    }
+
+    const storage = describeStorage();
+    if (!storage.writable) {
+      console.error(
+        `[auth] DATA_DIR ${storage.dir} is not writable (${storage.error}). ` +
+          "Registrations will not survive a restart."
+      );
+    }
+  }
+
+  /** Critical change: written straight through so it cannot be lost. */
+  private persistNow(): void {
+    flushState("cryptohub-credentials", { users: this.users });
+  }
+
+  /** Least-privilege change such as a role update. */
+  private persist(): void {
+    saveState("cryptohub-credentials", { users: this.users });
+  }
 
   /**
    * Seeds an administrator from the environment when one is configured.
@@ -101,6 +128,8 @@ class CredentialStore {
   private seed(): void {
     if (this.seeded) return;
     this.seeded = true;
+
+    this.load();
 
     const email = normalizeEmail(process.env.DEFAULT_USER_EMAIL || "");
     const password = process.env.DEFAULT_USER_PASSWORD || "";
@@ -124,6 +153,7 @@ class CredentialStore {
     });
 
     console.log(`[auth] seeded administrator account ${email}`);
+    this.persistNow();
   }
 
   count(): number {
@@ -182,6 +212,9 @@ class CredentialStore {
     };
 
     this.users.push(user);
+    // A registration must never be lost: if it were, the user could never
+    // sign in again.
+    this.persistNow();
     return { ok: true, user: toPublic(user) };
   }
 
@@ -234,6 +267,7 @@ class CredentialStore {
     };
 
     this.users.push(user);
+    this.persistNow();
     return toPublic(user);
   }
 
@@ -248,6 +282,7 @@ class CredentialStore {
     const user = this.users.find((u) => u.id === id);
     if (!user) return null;
     user.riskCertifiedAt = at;
+    this.persistNow();
     return toPublic(user);
   }
 
@@ -255,6 +290,7 @@ class CredentialStore {
     const user = this.users.find((u) => u.id === id);
     if (!user) return null;
     user.role = role;
+    this.persistNow();
     return toPublic(user);
   }
 

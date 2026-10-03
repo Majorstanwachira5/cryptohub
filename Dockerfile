@@ -46,6 +46,12 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Durable state directory. Accounts, balances, trades, ledger entries, and
+# referrals are written here, so the volume in docker-compose.yml must be
+# mounted over this path or a restart would erase every account.
+ENV DATA_DIR=/app/data
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
+
 USER nextjs
 
 EXPOSE 4000

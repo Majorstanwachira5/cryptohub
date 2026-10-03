@@ -3,6 +3,7 @@ import { Trade, AssetClass, TradeDirection, OrderType, AccountType } from "@/typ
 import { validateTradeRisk } from "./riskEngine";
 
 export interface ExecuteOrderParams {
+  userId: string;
   accountType?: AccountType;
   symbol: string;
   assetClass: AssetClass;
@@ -24,7 +25,7 @@ export function executeOrder(params: ExecuteOrderParams): {
   const accountType = params.accountType || "DEMO";
 
   // 1. Enforce strict risk rules on REAL accounts
-  const riskCheck = validateTradeRisk({
+  const riskCheck = validateTradeRisk(params.userId, {
     accountType,
     symbol: params.symbol,
     assetClass: params.assetClass,
@@ -43,7 +44,7 @@ export function executeOrder(params: ExecuteOrderParams): {
     };
   }
 
-  const balance = db.getBalance(accountType);
+  const balance = db.getBalance(params.userId, accountType);
 
   // 2. Calculate Required Margin
   const notionalValue =
@@ -97,8 +98,8 @@ export function executeOrder(params: ExecuteOrderParams): {
 
   // 5. Record Trade in Isolated Account
   const newTrade = db.addTrade(
+    params.userId,
     {
-      userId: "usr_quant_01",
       accountType,
       symbol: params.symbol,
       assetClass: params.assetClass,
@@ -127,12 +128,18 @@ export function executeOrder(params: ExecuteOrderParams): {
   };
 }
 
-export function closeOrder(tradeId: string, exitPrice: number, accountType: AccountType = "DEMO"): {
+export function closeOrder(
+  userId: string,
+  tradeId: string,
+  exitPrice: number,
+  accountType: AccountType = "DEMO"
+): {
   success: boolean;
   trade?: Trade;
   error?: string;
 } {
-  const closed = db.closeTrade(tradeId, exitPrice, accountType);
+  // Scoped to the caller, so one user can never close another's position.
+  const closed = db.closeTrade(userId, tradeId, exitPrice, accountType);
   if (!closed) {
     return { success: false, error: "Trade not found or already closed." };
   }

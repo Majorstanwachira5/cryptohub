@@ -26,6 +26,10 @@ yarn-error.log*
 .env
 .env*.local
 
+# Durable runtime state: account records, password hashes, balances, ledger
+# entries. Never committed.
+data/
+
 # TypeScript cache
 *.tsbuildinfo
 next-env.d.ts

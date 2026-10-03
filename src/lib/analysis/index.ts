@@ -362,6 +362,8 @@ function buildTradeSetup(input: SetupInput): SetupResult {
 }
 
 export interface BuildReportOptions {
+  /** Owner of the data this report is built for. */
+  userId: string;
   symbol: string;
   timeframe: string;
   accountType: AccountType;
@@ -382,6 +384,7 @@ const REPORT_TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D"];
  */
 export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport {
   const {
+    userId,
     symbol,
     timeframe,
     accountType,
@@ -432,8 +435,8 @@ export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport
   const alignment = bias === "NEUTRAL" ? 0.6 : Math.sign(combinedScore) === Math.sign(confluence.score) ? 1 : 0.65;
   const confidence = Math.round(confluence.confidence * alignment);
 
-  const balance = db.getBalance(accountType);
-  const user = db.getUser();
+  const balance = db.getBalance(userId, accountType);
+  const user = db.getUser(userId);
 
   const direction = directionFromBias(bias);
   let setup: AnalysisReport["setup"] = null;
@@ -467,7 +470,7 @@ export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport
     );
   }
 
-  const performance = computeAccountPerformance(db.getTrades(accountType), accountType);
+  const performance = computeAccountPerformance(db.getTrades(userId, accountType), accountType);
 
   const backtest = includeBacktest
     ? runBacktest({

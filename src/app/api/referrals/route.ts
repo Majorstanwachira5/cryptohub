@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getFxRates, usdToKes } from "@/lib/fx/rates";
-import { requireIdentity, requirePermission } from "@/lib/auth/access";
+import { requirePermission, platformUserId } from "@/lib/auth/access";
 import { ReferralStats } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-function buildStats(): ReferralStats {
+function buildStats(userId: string): ReferralStats {
   const fx = getFxRates();
-  const records = db.getReferrals();
+  const records = db.getReferrals(userId);
   const rewardUsd = db.getReferralRewardUsd();
   const totalEarnedUsd = Math.round(
     records.reduce((a, r) => a + r.rewardUsd, 0) * 100
@@ -18,7 +18,7 @@ function buildStats(): ReferralStats {
     process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 4000}`;
 
   return {
-    code: db.getReferralCode(),
+    code: db.getReferralCode(userId),
     rewardPerReferralUsd: rewardUsd,
     rewardPerReferralKes: usdToKes(rewardUsd),
     totalReferrals: records.length,
@@ -26,7 +26,7 @@ function buildStats(): ReferralStats {
     pending: records.filter((r) => r.status === "PENDING").length,
     totalEarnedUsd,
     totalEarnedKes: usdToKes(totalEarnedUsd),
-    shareUrl: `${baseUrl}/auth?ref=${db.getReferralCode()}`,
+    shareUrl: `${baseUrl}/?ref=${db.getReferralCode(userId)}`,
     records,
   };
 }
@@ -37,9 +37,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
+  const userId = platformUserId(auth.identity);
+
   return NextResponse.json({
-    referrals: buildStats(),
-    balance: db.getBalance("REAL"),
+    referrals: buildStats(userId),
+    balance: db.getBalance(userId, "REAL"),
   });
 }
 
@@ -53,7 +55,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const result = db.registerReferral({
+    const userId = platformUserId(auth.identity);
+    const result = db.registerReferral(userId, {
       code: body?.code,
       email: body?.email,
       name: body?.name,
@@ -72,7 +75,7 @@ export async function POST(request: NextRequest) {
       },
       record: result.record,
       balance: result.balance,
-      referrals: buildStats(),
+      referrals: buildStats(userId),
       creditedTo: auth.identity.user.email,
     });
   } catch {

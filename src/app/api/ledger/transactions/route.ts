@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAccountAccess } from "@/lib/auth/access";
+import { requireAccountAccess, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +12,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const transactions = db.getLedger(auth.accountType);
+  const transactions = db.getLedger(platformUserId(auth.identity), auth.accountType);
   return NextResponse.json({ transactions, accountType: auth.accountType });
 }

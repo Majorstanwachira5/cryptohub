@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeOrder } from "@/lib/trading/engine";
 import { db } from "@/lib/db";
-import { requireAccountAccess } from "@/lib/auth/access";
+import { requireAccountAccess, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = executeOrder({
+      userId: platformUserId(auth.identity),
       accountType: auth.accountType,
       symbol,
       assetClass: assetClass || "CRYPTO",
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: result.error }, { status: 400 });
     }
 
-    const updatedBalance = db.getBalance(auth.accountType);
+    const updatedBalance = db.getBalance(platformUserId(auth.identity), auth.accountType);
 
     return NextResponse.json({
       success: true,

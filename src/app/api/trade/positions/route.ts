@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { calculatePnL, calculatePips } from "@/lib/trading/pips";
-import { requireAccountAccess } from "@/lib/auth/access";
+import { requireAccountAccess, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +13,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const trades = db.getTrades(auth.accountType);
-  const balance = db.getBalance(auth.accountType);
+  const userId = platformUserId(auth.identity);
+  const trades = db.getTrades(userId, auth.accountType);
+  const balance = db.getBalance(userId, auth.accountType);
   return NextResponse.json({ trades, balance, accountType: auth.accountType });
 }
 
@@ -28,9 +29,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
+    const userId = platformUserId(auth.identity);
+
     if (Array.isArray(updates)) {
       for (const item of updates) {
-        const trade = db.getTrades(auth.accountType).find((t) => t.id === item.id);
+        const trade = db.getTrades(userId, auth.accountType).find((t) => t.id === item.id);
         if (trade && trade.status === "OPEN") {
           const pnl = calculatePnL(
             trade.entryPrice,
@@ -47,13 +50,13 @@ export async function PUT(request: NextRequest) {
             trade.symbol,
             trade.assetClass
           );
-          db.updatePositionPrice(item.id, item.currentPrice, pnl, pips, auth.accountType);
+          db.updatePositionPrice(userId, item.id, item.currentPrice, pnl, pips, auth.accountType);
         }
       }
     }
 
-    const updatedTrades = db.getTrades(auth.accountType);
-    const updatedBalance = db.getBalance(auth.accountType);
+    const updatedTrades = db.getTrades(userId, auth.accountType);
+    const updatedBalance = db.getBalance(userId, auth.accountType);
 
     return NextResponse.json({ trades: updatedTrades, balance: updatedBalance });
   } catch {

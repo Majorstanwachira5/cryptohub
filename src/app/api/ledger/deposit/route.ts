@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireAccountAccess } from "@/lib/auth/access";
+import { requireAccountAccess, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +25,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
     }
 
+    // Credits are always written to the caller's own books.
+    const userId = platformUserId(auth.identity);
+
     // A demo reset must never be reachable with a REAL-scoped token.
     if (action === "reset_demo") {
       if (auth.accountType !== "DEMO") {
@@ -33,7 +36,7 @@ export async function POST(request: NextRequest) {
           { status: 403 }
         );
       }
-      const resetBal = db.resetDemoBalance();
+      const resetBal = db.resetDemoBalance(userId);
       return NextResponse.json({
         success: true,
         balance: resetBal,
@@ -42,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (auth.accountType === "DEMO" && !amount) {
-      const resetBal = db.resetDemoBalance();
+      const resetBal = db.resetDemoBalance(userId);
       return NextResponse.json({
         success: true,
         balance: resetBal,
@@ -68,13 +71,14 @@ export async function POST(request: NextRequest) {
     }
 
     const updatedBalance = db.depositFunds(
+      userId,
       depositAmount,
       method || "Instant Fiat / Card Simulation",
       txHash,
       auth.accountType
     );
 
-    const latestLedger = db.getLedger(auth.accountType);
+    const latestLedger = db.getLedger(userId, auth.accountType);
 
     return NextResponse.json({
       success: true,

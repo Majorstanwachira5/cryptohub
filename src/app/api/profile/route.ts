@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getFxRates, usdToKes, DisplayCurrency } from "@/lib/fx/rates";
-import { requireIdentity } from "@/lib/auth/access";
+import { requireIdentity, platformUserId } from "@/lib/auth/access";
 import { permissionsFor } from "@/lib/auth/rbac";
 import { computeAccountPerformance } from "@/lib/analysis";
 import { AuthenticatedUser, ProfileSummary, ReferralStats } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-function referralStats(): ReferralStats {
+function referralStats(userId: string): ReferralStats {
   const rewardUsd = db.getReferralRewardUsd();
-  const records = db.getReferrals();
+  const records = db.getReferrals(userId);
   const totalEarnedUsd =
     Math.round(records.reduce((a, r) => a + r.rewardUsd, 0) * 100) / 100;
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${process.env.PORT || 4000}`;
+  const code = db.getReferralCode(userId);
 
   return {
-    code: db.getReferralCode(),
+    code,
     rewardPerReferralUsd: rewardUsd,
     rewardPerReferralKes: usdToKes(rewardUsd),
     totalReferrals: records.length,
@@ -25,7 +26,7 @@ function referralStats(): ReferralStats {
     pending: records.filter((r) => r.status === "PENDING").length,
     totalEarnedUsd,
     totalEarnedKes: usdToKes(totalEarnedUsd),
-    shareUrl: `${baseUrl}/auth?ref=${db.getReferralCode()}`,
+    shareUrl: `${baseUrl}/auth?ref=${code}`,
     records,
   };
 }
@@ -38,29 +39,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
+  // Every figure below is read with this id, so the response can only ever
+  // describe the account that owns the token.
+  const userId = platformUserId(auth.identity);
   const fx = getFxRates();
   const identity: AuthenticatedUser = auth.identity.user;
+  const profile = db.getUser(userId);
 
   const summary: ProfileSummary = {
     user: identity,
     depositAddresses: {
-      usdt: db.getUser().usdtAddress,
-      btc: db.getUser().btcAddress,
-      eth: db.getUser().ethAddress,
+      usdt: profile.usdtAddress,
+      btc: profile.btcAddress,
+      eth: profile.ethAddress,
     },
     session: {
       issuedAt: auth.identity.issuedAt ?? Math.floor(Date.now() / 1000),
       expiresAt: auth.identity.expiresAt ?? 0,
     },
-    demo: db.getBalance("DEMO"),
-    real: db.getBalance("REAL"),
+    demo: db.getBalance(userId, "DEMO"),
+    real: db.getBalance(userId, "REAL"),
     fx: { usdKes: fx.usdKes, displayCurrency: fx.displayCurrency as DisplayCurrency },
     performance: {
-      DEMO: computeAccountPerformance(db.getTrades("DEMO"), "DEMO"),
-      REAL: computeAccountPerformance(db.getTrades("REAL"), "REAL"),
+      DEMO: computeAccountPerformance(db.getTrades(userId, "DEMO"), "DEMO"),
+      REAL: computeAccountPerformance(db.getTrades(userId, "REAL"), "REAL"),
     },
-    referrals: referralStats(),
-    openPositions: db.getTrades("DEMO").filter((t) => t.status === "OPEN").length,
+    referrals: referralStats(userId),
+    openPositions: db
+      .getTrades(userId, "DEMO")
+      .filter((t) => t.status === "OPEN").length,
   };
 
   return NextResponse.json({

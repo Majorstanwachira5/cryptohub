@@ -6,7 +6,7 @@ import {
   runBacktest,
 } from "@/lib/indicators/backtestEngine";
 import { db } from "@/lib/db";
-import { requireAccountAccess, requirePermission } from "@/lib/auth/access";
+import { requireAccountAccess, requirePermission, platformUserId } from "@/lib/auth/access";
 import { can } from "@/lib/auth/rbac";
 import { AssetClass, BacktestSummary, PredictionResult } from "@/types";
 
@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
   // The quick signal is a view of the same report the Analysis Engine renders,
   // so the two panels can never contradict each other.
   const report = buildAnalysisReport({
+    userId: platformUserId(auth.identity),
     symbol: asset.symbol,
     timeframe,
     accountType: auth.accountType,

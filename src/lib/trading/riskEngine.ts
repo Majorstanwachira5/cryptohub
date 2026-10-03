@@ -26,13 +26,18 @@ export interface RiskCheckResult {
  * Validates real trades against strict risk management parameters.
  * Demo trades bypass real restrictions to encourage open learning.
  */
-export function validateTradeRisk(params: RiskCheckParams): RiskCheckResult {
+export function validateTradeRisk(
+  userId: string,
+  params: RiskCheckParams
+): RiskCheckResult {
   // If Demo, allow practice freedom
   if (params.accountType === "DEMO") {
     return { allowed: true };
   }
 
-  const balance = db.getBalance("REAL");
+  // Read from the caller's own REAL book, so the funding and sizing limits
+  // that apply are the ones for the trader placing the order.
+  const balance = db.getBalance(userId, "REAL");
 
   // 0. Account must be funded
   if (balance.equity <= 0) {

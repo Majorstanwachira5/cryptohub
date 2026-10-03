@@ -10,3 +10,6 @@ README.md
 .env
 .env*.local
 docker-compose*.yml
+# Runtime state must not be baked into an image. The container writes to a
+# volume at the same path.
+data/

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
 import { credentials } from "@/lib/auth/credentials";
-import { requirePermission } from "@/lib/auth/access";
+import { requirePermission, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,8 @@ export async function POST(request: NextRequest) {
   }
 
   const certifiedAt = new Date().toISOString();
-  const user = credentials.certifyRisk(auth.identity.user.id, certifiedAt);
+  const userId = platformUserId(auth.identity);
+  const user = credentials.certifyRisk(userId, certifiedAt);
 
   if (!user) {
     return NextResponse.json(
@@ -59,6 +61,10 @@ export async function POST(request: NextRequest) {
       { status: 404 }
     );
   }
+
+  // Recorded on the trading profile too, so the account surfaces as certified
+  // wherever that flag is read.
+  db.completeRiskQuiz(userId);
 
   return NextResponse.json({
     success: true,

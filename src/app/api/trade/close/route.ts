@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { closeOrder } from "@/lib/trading/engine";
 import { db } from "@/lib/db";
-import { requireAccountAccess } from "@/lib/auth/access";
+import { requireAccountAccess, platformUserId } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +15,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
     }
 
+    // Only the owner's position can be closed: the lookup is scoped to userId.
+    const userId = platformUserId(auth.identity);
+
     if (!tradeId || !exitPrice) {
       return NextResponse.json(
         { success: false, error: "tradeId and exitPrice are required." },
@@ -22,12 +25,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = closeOrder(tradeId, Number(exitPrice), auth.accountType);
+    const result = closeOrder(userId, tradeId, Number(exitPrice), auth.accountType);
     if (!result.success) {
       return NextResponse.json({ success: false, error: result.error }, { status: 400 });
     }
 
-    const updatedBalance = db.getBalance(auth.accountType);
+    const updatedBalance = db.getBalance(userId, auth.accountType);
 
     return NextResponse.json({
       success: true,

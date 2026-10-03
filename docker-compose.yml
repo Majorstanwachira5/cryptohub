@@ -16,13 +16,23 @@
     # container has to be handed these explicitly.
     env_file:
       - .env
-    environment:
+environment:
       - NODE_ENV=production
       - PORT=4000
       - HOSTNAME=0.0.0.0
+      # Durable state. Must match the directory prepared in the Dockerfile and
+      # be writable by the unprivileged runtime user.
+      - DATA_DIR=/app/data
+    volumes:
+      # Accounts, balances, trades, ledger, and referrals live here. Without
+      # this volume every restart would delete them along with the container.
+      - cryptohub-data:/app/data
     restart: unless-stopped
     networks:
       - cryptohub-network
+
+volumes:
+  cryptohub-data:
 
 networks:
   cryptohub-network:

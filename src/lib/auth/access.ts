@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { NextRequest } from "next/server";
 import { AuthenticatedUser, Permission, Role } from "@/types";
+import { db } from "@/lib/db";
 import { credentials, PublicUser } from "./credentials";
 import { can, isRole, permissionForAccount } from "./rbac";
 
@@ -210,6 +211,25 @@ export function readBearerToken(request: NextRequest): string | null {
 }
 
 export type GuardFailure = { ok: false; status: 401 | 403; error: string };
+
+/**
+ * Returns the platform data owner for a verified identity, creating the
+ * profile and both books on first sight.
+ *
+ * Every authenticated route calls this once and then passes the returned id
+ * to the store. Because the id is derived from the token rather than from the
+ * request body, a caller cannot point the store at somebody else's records.
+ */
+export function platformUserId(identity: Identity): string {
+  const id = identity.user.id;
+  db.ensureUser({
+    id,
+    email: identity.user.email,
+    name: identity.user.name,
+    role: identity.user.role,
+  });
+  return id;
+}
 
 /**
  * Requires a valid access token.

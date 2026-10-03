@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildAnalysisReport } from "@/lib/analysis";
 import { DEFAULT_ASSETS } from "@/lib/market/assets";
-import { requireAccountAccess } from "@/lib/auth/access";
+import { requireAccountAccess, platformUserId } from "@/lib/auth/access";
 import { AssetClass } from "@/types";
 
 // Indicator and replay work is heavier than a JSON lookup, so it runs per
@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const report = buildAnalysisReport({
+      userId: platformUserId(auth.identity),
       symbol: asset.symbol,
       timeframe,
       accountType: auth.accountType,
