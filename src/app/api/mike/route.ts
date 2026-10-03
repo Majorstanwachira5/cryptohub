@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireIdentity } from "@/lib/auth/access";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,15 @@ What topic would you like to dive into today?`;
 
 export async function POST(request: NextRequest) {
   try {
+    // Mike lives inside the terminal, and this handler spends a metered
+    // provider key. Without a token it would let anyone who can reach the
+    // server bill the account, so identity is required before any prompt is
+    // read or forwarded.
+    const auth = await requireIdentity(request);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
     const body = await request.json();
     const messages: ChatMessage[] = body.messages || [];
 

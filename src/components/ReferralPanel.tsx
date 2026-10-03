@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { ReferralStats } from "@/types";
 import { formatMoney } from "@/lib/fx/rates";
+import { authFetch } from "@/lib/auth/session";
 import {
   Gift,
   Copy,
@@ -92,7 +93,7 @@ export const ReferralPanel: React.FC<ReferralPanelProps> = ({
     setMessage(null);
 
     try {
-      const res = await fetch("/api/referrals", {
+      const res = await authFetch("/api/referrals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: stats?.code, email, name }),

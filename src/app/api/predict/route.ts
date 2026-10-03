@@ -6,7 +6,9 @@ import {
   runBacktest,
 } from "@/lib/indicators/backtestEngine";
 import { db } from "@/lib/db";
-import { AccountType, AssetClass, BacktestSummary, PredictionResult } from "@/types";
+import { requireAccountAccess, requirePermission } from "@/lib/auth/access";
+import { can } from "@/lib/auth/rbac";
+import { AssetClass, BacktestSummary, PredictionResult } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +40,12 @@ export async function GET(request: NextRequest) {
   const symbol = searchParams.get("symbol") || "BTCUSDT";
   const timeframe = searchParams.get("timeframe") || "1H";
   const mode = searchParams.get("mode"); // "backtest" | "live"
-  const accountType = (searchParams.get("account_type") || "DEMO") as AccountType;
+  const requestedAccount = searchParams.get("account_type") || "DEMO";
+
+  const auth = await requireAccountAccess(request, requestedAccount);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
 
   const asset = DEFAULT_ASSETS.find((a) => a.symbol === symbol) || DEFAULT_ASSETS[0];
 
@@ -49,10 +56,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Check if admin has set an override
+  // An override is an administrator broadcast. A non-admin never receives one,
+  // and only an admin may create one through the POST handler below.
   const override = db.getLatestPrediction(symbol);
   if (override && override.isAdminOverride) {
-    return NextResponse.json(override);
+    if (!can(auth.identity.user.role, "admin:prediction-override")) {
+      // Fall through to the computed signal rather than serving admin-only
+      // content to a regular user.
+    } else {
+      return NextResponse.json(override);
+    }
   }
 
   const priceParam = searchParams.get("current_price");
@@ -63,7 +76,7 @@ export async function GET(request: NextRequest) {
   const report = buildAnalysisReport({
     symbol: asset.symbol,
     timeframe,
-    accountType: accountType === "REAL" ? "REAL" : "DEMO",
+    accountType: auth.accountType,
     currentPrice: actualPrice,
     includeBacktest: false,
   });
@@ -135,6 +148,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Broadcasting an override to every client is an administrator capability.
+  const auth = await requirePermission(request, "admin:prediction-override");
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+  }
+
   try {
     const body = await request.json();
     const {

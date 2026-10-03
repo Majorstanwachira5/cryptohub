@@ -10,6 +10,8 @@ import { TradeTicket } from "@/components/TradeTicket";
 import { PredictionPanel } from "@/components/PredictionPanel";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
 import { BottomNav, NavSection } from "@/components/BottomNav";
+import { SessionProvider, useSession } from "@/components/SessionProvider";
+import { authFetch, UnauthorizedError } from "@/lib/auth/session";
 import { TradesPanel } from "@/components/TradesPanel"; // available for future use
 import { ReferralPanel } from "@/components/ReferralPanel";
 import { ProfilePanel } from "@/components/ProfilePanel";
@@ -32,23 +34,25 @@ import {
   Trade,
   PredictionResult,
   AnalysisReport,
-  ProfileSummary,
+  ProfileResponse,
   ReferralStats,
   AccountType,
 } from "@/types";
 import confetti from "canvas-confetti";
 
 function TradingPlatformContent() {
+  const session = useSession();
+  const { isAuthenticated, status: sessionStatus, requestAccountAccess } = session;
+
   const [view, setView] = useState<"LANDING" | "TERMINAL">("LANDING");
   // Section shown inside the terminal. LANDING and HOME are distinct: the
   // public marketing page is not the same surface as the trading dashboard.
   const [section, setSection] = useState<NavSection>("HOME");
   const [currency, setCurrency] = useState<DisplayCurrency>("KES");
   const [usdKesRate, setUsdKesRate] = useState<number>(129.5);
-  const [profile, setProfile] = useState<(ProfileSummary & { authenticated: boolean }) | null>(null);
+  const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [referrals, setReferrals] = useState<ReferralStats | null>(null);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [accountType, setAccountType] = useState<AccountType>("DEMO");
+    const [accountType, setAccountType] = useState<AccountType>("DEMO");
 
   const [assets, setAssets] = useState<MarketAsset[]>(DEFAULT_ASSETS);
   const [selectedAsset, setSelectedAsset] = useState<MarketAsset>(DEFAULT_ASSETS[0]);
@@ -102,42 +106,51 @@ function TradingPlatformContent() {
   }, [selectedAsset.symbol]);
 
   // Fetch Balance & User Profile for specified accountType
-  const fetchBalanceAndUser = useCallback(async (type?: AccountType) => {
-    const targetType = type || accountTypeRef.current;
-    try {
-      const res = await fetch(`/api/ledger/balance?account_type=${targetType}`);
-      const data = await res.json();
-      if (data.user) setUser(data.user);
-      if (data.balance) setBalance(data.balance);
-    } catch (err) {
-      console.error("Failed to fetch balance:", err);
-    }
-  }, []);
+  const fetchBalanceAndUser = useCallback(
+    async (type?: AccountType) => {
+      if (!isAuthenticated) return;
+      const targetType = type || accountTypeRef.current;
+      try {
+        const res = await authFetch(`/api/ledger/balance?account_type=${targetType}`);
+        const data = await res.json();
+        if (data.user) setUser(data.user);
+        if (data.balance) setBalance(data.balance);
+      } catch (err) {
+        console.error("Failed to fetch balance:", err);
+      }
+    },
+    [isAuthenticated]
+  );
 
   // Fetch Positions for specified accountType
-  const fetchPositions = useCallback(async (type?: AccountType) => {
-    const targetType = type || accountTypeRef.current;
-    try {
-      const res = await fetch(`/api/trade/positions?account_type=${targetType}`);
-      const data = await res.json();
-      const newTrades = data.trades || [];
-      setTrades(newTrades);
-      tradesRef.current = newTrades;
-      if (data.balance) setBalance(data.balance);
-    } catch (err) {
-      console.error("Failed to fetch positions:", err);
-    }
-  }, []);
+  const fetchPositions = useCallback(
+    async (type?: AccountType) => {
+      if (!isAuthenticated) return;
+      const targetType = type || accountTypeRef.current;
+      try {
+        const res = await authFetch(`/api/trade/positions?account_type=${targetType}`);
+        const data = await res.json();
+        const newTrades = data.trades || [];
+        setTrades(newTrades);
+        tradesRef.current = newTrades;
+        if (data.balance) setBalance(data.balance);
+      } catch (err) {
+        console.error("Failed to fetch positions:", err);
+      }
+    },
+    [isAuthenticated]
+  );
 
   // Fetch Quantitative Prediction (Silent mode does not trigger loading spinner)
   const fetchPrediction = useCallback(
     async (silent: boolean = false) => {
+      if (!isAuthenticated) return;
       if (!silent) setPredictionLoading(true);
       try {
         const curPrice = selectedAssetRef.current?.currentPrice || selectedAsset.currentPrice;
         const currentSym = selectedAssetRef.current?.symbol || selectedAsset.symbol;
         const activeAcct = accountTypeRef.current;
-        const res = await fetch(
+        const res = await authFetch(
           `/api/predict?symbol=${currentSym}&timeframe=${timeframe}&account_type=${activeAcct}&current_price=${curPrice}`
         );
         const data = await res.json();
@@ -148,65 +161,85 @@ function TradingPlatformContent() {
         if (!silent) setPredictionLoading(false);
       }
     },
-    [selectedAsset.symbol, selectedAsset.currentPrice, timeframe]
+    [isAuthenticated, selectedAsset.symbol, selectedAsset.currentPrice, timeframe]
   );
 
   // Fetch the full analysis report (indicators, structure, sizing, replay stats)
-  const fetchAnalysis = useCallback(async (silent: boolean = false) => {
-    if (!silent) setAnalysisLoading(true);
-    try {
-      const curPrice = selectedAssetRef.current?.currentPrice || selectedAsset.currentPrice;
-      const currentSym = selectedAssetRef.current?.symbol || selectedAsset.symbol;
-      const activeAcct = accountTypeRef.current;
-      const res = await fetch(
-        `/api/analysis?symbol=${currentSym}&timeframe=${timeframe}&account_type=${activeAcct}&current_price=${curPrice}`
-      );
+  const fetchAnalysis = useCallback(
+    async (silent: boolean = false) => {
+      if (!isAuthenticated) return;
+      if (!silent) setAnalysisLoading(true);
+      try {
+        const curPrice = selectedAssetRef.current?.currentPrice || selectedAsset.currentPrice;
+        const currentSym = selectedAssetRef.current?.symbol || selectedAsset.symbol;
+        const activeAcct = accountTypeRef.current;
+        const res = await authFetch(
+          `/api/analysis?symbol=${currentSym}&timeframe=${timeframe}&account_type=${activeAcct}&current_price=${curPrice}`
+        );
       if (!res.ok) throw new Error(`Analysis request failed: ${res.status}`);
       const data = await res.json();
       setAnalysis(data);
-    } catch (err) {
-      console.error("Failed to fetch analysis:", err);
-    } finally {
-      if (!silent) setAnalysisLoading(false);
-    }
-  }, [selectedAsset.symbol, selectedAsset.currentPrice, timeframe]);
+      } catch (err) {
+        console.error("Failed to fetch analysis:", err);
+      } finally {
+        if (!silent) setAnalysisLoading(false);
+      }
+    },
+    [isAuthenticated, selectedAsset.symbol, selectedAsset.currentPrice, timeframe]
+  );
 
   // Fetch profile (session, balances, performance, referral summary) and referrals
   const fetchProfile = useCallback(async () => {
+    if (!isAuthenticated) return;
     try {
-      const headers: Record<string, string> = {};
-      if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
-      const res = await fetch("/api/profile", { headers });
+      const res = await authFetch("/api/profile");
       if (!res.ok) return;
       const data = await res.json();
       setProfile(data);
-      setSessionToken((prev) => prev ?? data.session?.token ?? null);
       if (data.fx?.usdKes) setUsdKesRate(data.fx.usdKes);
     } catch (err) {
-      console.error("Failed to fetch profile:", err);
+      // A rejected token means the session died; send the user back to sign-in
+      // rather than leaving the terminal in a half-authenticated state.
+      if (err instanceof UnauthorizedError) {
+        showToast("warning", "Session Expired", "Please sign in again to continue.");
+      } else {
+        console.error("Failed to fetch profile:", err);
+      }
     }
-  }, [sessionToken]);
+  }, [isAuthenticated]);
 
   const fetchReferrals = useCallback(async () => {
+    if (!isAuthenticated) return;
     try {
-      const res = await fetch("/api/referrals");
+      const res = await authFetch("/api/referrals");
       if (!res.ok) return;
       const data = await res.json();
       setReferrals(data.referrals);
     } catch (err) {
       console.error("Failed to fetch referrals:", err);
     }
-  }, []);
+  }, [isAuthenticated]);
 
-  // Initial and on-account-switch sync
+  // Initial and on-account-switch sync. Every one of these endpoints is behind
+  // an access token, so nothing is requested until a session has been restored.
   useEffect(() => {
+    if (!isAuthenticated) return;
     fetchBalanceAndUser(accountType);
     fetchPositions(accountType);
     fetchPrediction(false);
     fetchAnalysis(false);
     fetchProfile();
     fetchReferrals();
-  }, [accountType, fetchBalanceAndUser, fetchPositions, fetchPrediction, fetchAnalysis]);
+  }, [
+    isAuthenticated,
+    accountType,
+    fetchBalanceAndUser,
+    fetchPositions,
+    fetchPrediction,
+    fetchAnalysis,
+    fetchProfile,
+    fetchReferrals,
+  ]);
 
   // Refetch prediction when timeframe or symbol changes
   useEffect(() => {
@@ -427,8 +460,44 @@ function TradingPlatformContent() {
     // Only re-subscribe when the asset changes — trades/accountType read via refs
   }, [selectedAsset.symbol, selectedAsset.currentPrice, selectedAsset.digits, selectedAsset.assetClass]);
 
+  /**
+   * Sign out. The token is discarded on the server's terms and here too, and any
+   * profile data that belonged to the old identity is dropped from state so it
+   * cannot leak into the next session.
+   */
+  const handleLogout = async () => {
+    await session.logout();
+    setProfile(null);
+    setReferrals(null);
+    setBalance(null);
+    setTrades([]);
+    tradesRef.current = [];
+    setPrediction(null);
+    setAnalysis(null);
+    setAccountType("DEMO");
+    accountTypeRef.current = "DEMO";
+    setSection("HOME");
+    setView("LANDING");
+    showToast("info", "Signed Out", "Your access token has been discarded.");
+  };
+
   // Account Switching Logic
-  const handleSwitchAccount = (targetType: AccountType) => {
+  //
+  // Registration or sign-in is required before either book can be opened. The
+  // account the user tried to reach is remembered so they land on it after
+  // authenticating.
+  const handleSwitchAccount = async (targetType: AccountType) => {
+    const allowed = await requestAccountAccess(targetType);
+    if (!allowed) {
+      setIsAuthOpen(true);
+      showToast(
+        "info",
+        "Sign In Required",
+        `Register or sign in to open the ${targetType} account.`
+      );
+      return;
+    }
+
     setAccountType(targetType);
     accountTypeRef.current = targetType;
     showToast(
@@ -440,10 +509,25 @@ function TradingPlatformContent() {
     );
   };
 
+  /** Entry point used by the landing page buttons. */
+  const handleOpenTerminal = async (targetType: AccountType) => {
+    setView("TERMINAL");
+    setSection("HOME");
+
+    const allowed = await requestAccountAccess(targetType);
+    if (!allowed) {
+      setIsAuthOpen(true);
+      return;
+    }
+
+    setAccountType(targetType);
+    accountTypeRef.current = targetType;
+  };
+
   // Reset Demo Balance Handler
   const handleResetDemo = async () => {
     try {
-      const res = await fetch("/api/ledger/deposit", {
+      const res = await authFetch("/api/ledger/deposit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reset_demo", accountType: "DEMO" }),
@@ -477,7 +561,7 @@ function TradingPlatformContent() {
     rationale?: string;
   }): Promise<boolean> => {
     try {
-      const res = await fetch("/api/trade/execute", {
+      const res = await authFetch("/api/trade/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
@@ -513,7 +597,7 @@ function TradingPlatformContent() {
     demoTradeTargetMap.current.delete(tradeId);
     const activeAcct = accountTypeRef.current;
     try {
-      const res = await fetch("/api/trade/close", {
+      const res = await authFetch("/api/trade/close", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tradeId, exitPrice: currentPrice, accountType: activeAcct }),
@@ -610,14 +694,11 @@ function TradingPlatformContent() {
   return (
     <>
       {view === "LANDING" ? (
-        <LandingHero
-          assets={assets}
-          onOpenTerminal={(type) => {
-            setAccountType(type);
-            setView("TERMINAL");
-          }}
-          onOpenAuth={() => setIsAuthOpen(true)}
-        />
+          <LandingHero
+            assets={assets}
+            onOpenTerminal={handleOpenTerminal}
+            onOpenAuth={() => setIsAuthOpen(true)}
+          />
       ) : (
         <main className="min-h-screen flex flex-col bg-[#0b0e14] pb-20 md:pb-6 transition-colors duration-200">
           {/* Top Financial Margin Bar with DEMO/REAL Switcher */}
@@ -815,6 +896,8 @@ function TradingPlatformContent() {
             <div className="flex-1 p-3 lg:p-4 max-w-[1920px] w-full mx-auto max-w-3xl">
               <ProfilePanel
                 profile={profile}
+                provider={profile?.provider}
+                permissions={profile?.permissions}
                 authenticated={profile?.authenticated ?? false}
                 currency={currency}
                 trades={trades}
@@ -824,10 +907,7 @@ function TradingPlatformContent() {
                 onToggleCurrency={() =>
                   setCurrency((c) => (c === "KES" ? "USD" : "KES"))
                 }
-                onLogout={() => {
-                  setView("LANDING");
-                  showToast("info", "Logged Out", "Returned to public overview.");
-                }}
+                onLogout={handleLogout}
                 onOpenRiskQuiz={() => setIsRiskQuizOpen(true)}
                 onOpenAdmin={() => setIsAdminOpen(true)}
               />
@@ -881,7 +961,9 @@ function TradingPlatformContent() {
             isOpen={isAuthOpen}
             onClose={() => setIsAuthOpen(false)}
             onLoginSuccess={(chosenType) => {
+              // The session is live now, so opening the requested book is allowed.
               setAccountType(chosenType);
+              accountTypeRef.current = chosenType;
               setSection("HOME");
               setView("TERMINAL");
             }}
@@ -923,7 +1005,9 @@ function TradingPlatformContent() {
 export default function Home() {
   return (
     <ToastProvider>
-      <TradingPlatformContent />
+      <SessionProvider>
+        <TradingPlatformContent />
+      </SessionProvider>
     </ToastProvider>
   );
 }

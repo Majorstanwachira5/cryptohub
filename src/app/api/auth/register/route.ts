@@ -6,15 +6,13 @@ import { AccessTokenResponse } from "@/types";
 export const dynamic = "force-dynamic";
 
 /**
- * Exchanges credentials for an access token.
+ * Creates an account and returns an access token.
  *
- * The password is verified against the salted scrypt hash held by the
- * credential store and is never echoed, logged, or compared as a string.
- * Failures return one generic message for both an unknown email and a wrong
- * password, so this endpoint cannot be used to discover which accounts exist.
+ * The response body carries no password material: only the token and the
+ * public user record.
  */
 export async function POST(request: NextRequest) {
-  let body: { email?: string; password?: string };
+  let body: { email?: string; name?: string; password?: string };
 
   try {
     body = await request.json();
@@ -25,10 +23,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = credentials.authenticate(body.email || "", body.password || "");
+  const result = credentials.create({
+    email: body.email || "",
+    name: body.name || "",
+    password: body.password || "",
+  });
 
   if (!result.ok) {
-    return NextResponse.json({ success: false, error: result.error }, { status: 401 });
+    return NextResponse.json({ success: false, error: result.error }, { status: 400 });
   }
 
   const { token, expiresAt } = issueAccessToken(result.user);

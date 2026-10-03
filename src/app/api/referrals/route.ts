@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getFxRates, usdToKes } from "@/lib/fx/rates";
+import { requireIdentity, requirePermission } from "@/lib/auth/access";
 import { ReferralStats } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,12 @@ function buildStats(): ReferralStats {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = await requirePermission(request, "referral:manage");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   return NextResponse.json({
     referrals: buildStats(),
     balance: db.getBalance("REAL"),
@@ -38,6 +44,13 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  // Referral rewards credit a real balance, so this needs the same permission
+  // that allows touching the real book.
+  const auth = await requirePermission(request, "referral:manage");
+  if (!auth.ok) {
+    return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+  }
+
   try {
     const body = await request.json();
     const result = db.registerReferral({
@@ -60,6 +73,7 @@ export async function POST(request: NextRequest) {
       record: result.record,
       balance: result.balance,
       referrals: buildStats(),
+      creditedTo: auth.identity.user.email,
     });
   } catch {
     return NextResponse.json(

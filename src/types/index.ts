@@ -4,11 +4,42 @@ export type TradeDirection = "LONG" | "SHORT";
 export type OrderType = "MARKET" | "LIMIT";
 export type PositionStatus = "OPEN" | "CLOSED" | "CANCELLED";
 
+export type Role = "user" | "admin";
+
+export type Permission =
+  | "trade:demo"
+  | "trade:real"
+  | "ledger:read"
+  | "analysis:read"
+  | "referral:manage"
+  | "admin:stats"
+  | "admin:prediction-override";
+
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  kycStatus: "UNVERIFIED" | "PENDING" | "VERIFIED";
+    createdAt: string;
+    /** Which identity provider vouched for this session. */
+    provider: "LOCAL" | "SUPABASE";
+    /** Set once the real-account risk certification has been passed server-side. */
+    riskCertifiedAt: string | null;
+  }
+
+export interface AccessTokenResponse {
+  token: string;
+  expiresAt: number;
+  tokenType: "Bearer";
+  user: AuthenticatedUser;
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
-  role: "user" | "admin";
+  role: Role;
   btcAddress: string;
   ethAddress: string;
   usdtAddress: string;
@@ -36,6 +67,15 @@ export interface ReferralRecord {
   createdAt: string;
 }
 
+/** Payload returned by GET /api/profile. Always authenticated, never public. */
+export interface ProfileResponse extends ProfileSummary {
+  authenticated: boolean;
+  /** Which authority issued the access token that authorized this request. */
+  provider: "local" | "supabase";
+  /** Permissions granted to the signed-in user, derived from their role. */
+  permissions: Permission[];
+}
+
 export interface ReferralStats {
   code: string;
   rewardPerReferralUsd: number;
@@ -50,10 +90,19 @@ export interface ReferralStats {
 }
 
 export interface ProfileSummary {
-  user: User;
+  user: AuthenticatedUser;
+  /** Platform deposit addresses, shown on the profile for funding the real account. */
+  depositAddresses: {
+    usdt: string;
+    btc: string;
+    eth: string;
+  };
   session: {
-    /** Raw JWT so the client can present it back on every request. */
-    token: string;
+    /**
+     * Lifetime of the access token currently in use. The raw token is never
+     * echoed back: the client already holds it, and reflecting a bearer
+     * credential into a response body only widens exposure.
+     */
     issuedAt: number;
     expiresAt: number;
   };

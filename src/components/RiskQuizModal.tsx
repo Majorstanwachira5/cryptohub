@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { X, ShieldAlert, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
+import { authFetch } from "@/lib/auth/session";
 
 interface RiskQuizModalProps {
   isOpen: boolean;
@@ -33,14 +34,24 @@ export const RiskQuizModal: React.FC<RiskQuizModalProps> = ({
 
     setSubmitting(true);
     try {
-      await fetch("/api/auth/login", {
-        method: "PUT",
+      // The server holds the correct answers, so this is a real check: it
+      // refuses to record the certification if the answers are wrong.
+      const res = await authFetch("/api/auth/risk-quiz", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "complete_risk_quiz" }),
+        body: JSON.stringify({ q1, q2, q3 }),
       });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError(data?.error || "Could not record your certification. Please try again.");
+        return;
+      }
+
       onSuccess();
     } catch {
-      onSuccess();
+      setError("Network error. Your certification was not recorded.");
     } finally {
       setSubmitting(false);
     }

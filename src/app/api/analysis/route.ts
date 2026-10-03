@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildAnalysisReport } from "@/lib/analysis";
 import { DEFAULT_ASSETS } from "@/lib/market/assets";
-import { AccountType, AssetClass } from "@/types";
+import { requireAccountAccess } from "@/lib/auth/access";
+import { AssetClass } from "@/types";
 
 // Indicator and replay work is heavier than a JSON lookup, so it runs per
 // request rather than on a timer.
@@ -13,10 +14,16 @@ export async function GET(request: NextRequest) {
 
   const symbol = searchParams.get("symbol") || "BTCUSDT";
   const timeframe = searchParams.get("timeframe") || "1H";
-  const accountType = (searchParams.get("account_type") || "DEMO") as AccountType;
   const priceParam = searchParams.get("current_price");
   const currentPrice = priceParam ? parseFloat(priceParam) : undefined;
   const includeBacktest = searchParams.get("backtest") !== "false";
+
+  // Analysis reads account state (equity, realised record), so it is gated on
+  // the permission for the book being inspected.
+  const auth = await requireAccountAccess(request, searchParams.get("account_type") ?? "DEMO");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
 
   const asset =
     DEFAULT_ASSETS.find((a) => a.symbol === symbol) || DEFAULT_ASSETS[0];
@@ -25,7 +32,7 @@ export async function GET(request: NextRequest) {
     const report = buildAnalysisReport({
       symbol: asset.symbol,
       timeframe,
-      accountType: accountType === "REAL" ? "REAL" : "DEMO",
+      accountType: auth.accountType,
       currentPrice:
         currentPrice !== undefined && Number.isFinite(currentPrice)
           ? currentPrice

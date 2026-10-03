@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getFxRates, usdToKes, DisplayCurrency } from "@/lib/fx/rates";
-import { signSession, readSession, verifySession } from "@/lib/auth/jwt";
+import { requireIdentity } from "@/lib/auth/access";
+import { permissionsFor } from "@/lib/auth/rbac";
 import { computeAccountPerformance } from "@/lib/analysis";
-import { ProfileSummary, ReferralStats } from "@/types";
+import { AuthenticatedUser, ProfileSummary, ReferralStats } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,34 +31,27 @@ function referralStats(): ReferralStats {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  // The profile is private: there is no unauthenticated fallback. If a token
+  // is missing or stale the client is expected to register or sign in again.
+  const auth = await requireIdentity(request);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   const fx = getFxRates();
-
-  // A token may arrive as a Bearer header or a query parameter. The query form
-  // exists because <img> and download-style requests cannot set headers.
-  const session =
-    readSession(request.headers.get("authorization")) ??
-    verifySession(searchParams.get("session") || "");
-
-  const user = db.getUser();
-  const accountType = session?.accountType === "REAL" ? "REAL" : "DEMO";
-
-  const token = session
-    ? `${request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? searchParams.get("session")}`
-    : signSession({
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        accountType,
-      });
-
-  const issuedAt = session?.iat ?? Math.floor(Date.now() / 1000);
-  const expiresAt = session?.exp ?? issuedAt + 60 * 60 * 24 * 7;
+  const identity: AuthenticatedUser = auth.identity.user;
 
   const summary: ProfileSummary = {
-    user: session ? { ...user, email: session.email, name: session.name } : user,
-    session: { token, issuedAt, expiresAt },
+    user: identity,
+    depositAddresses: {
+      usdt: db.getUser().usdtAddress,
+      btc: db.getUser().btcAddress,
+      eth: db.getUser().ethAddress,
+    },
+    session: {
+      issuedAt: auth.identity.issuedAt ?? Math.floor(Date.now() / 1000),
+      expiresAt: auth.identity.expiresAt ?? 0,
+    },
     demo: db.getBalance("DEMO"),
     real: db.getBalance("REAL"),
     fx: { usdKes: fx.usdKes, displayCurrency: fx.displayCurrency as DisplayCurrency },
@@ -66,8 +60,13 @@ export async function GET(request: NextRequest) {
       REAL: computeAccountPerformance(db.getTrades("REAL"), "REAL"),
     },
     referrals: referralStats(),
-    openPositions: db.getTrades(accountType).filter((t) => t.status === "OPEN").length,
+    openPositions: db.getTrades("DEMO").filter((t) => t.status === "OPEN").length,
   };
 
-  return NextResponse.json({ ...summary, authenticated: Boolean(session) });
+  return NextResponse.json({
+    ...summary,
+    authenticated: true,
+    provider: auth.identity.provider,
+    permissions: permissionsFor(identity.role),
+  });
 }

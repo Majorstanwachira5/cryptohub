@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeOrder } from "@/lib/trading/engine";
 import { db } from "@/lib/db";
-import { AccountType } from "@/types";
+import { requireAccountAccess } from "@/lib/auth/access";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +22,13 @@ export async function POST(request: NextRequest) {
       rationale,
     } = body;
 
+    // Gate before anything is validated or executed, so an unauthenticated
+    // caller learns nothing about which parameters are acceptable.
+    const auth = await requireAccountAccess(request, accountType);
+    if (!auth.ok) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    }
+
     if (!symbol || !direction || !size || !leverage || !currentPrice) {
       return NextResponse.json(
         { success: false, error: "Missing required trade execution parameters." },
@@ -28,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = executeOrder({
-      accountType: accountType as AccountType,
+      accountType: auth.accountType,
       symbol,
       assetClass: assetClass || "CRYPTO",
       direction,
@@ -45,7 +54,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: result.error }, { status: 400 });
     }
 
-    const updatedBalance = db.getBalance(accountType as AccountType);
+    const updatedBalance = db.getBalance(auth.accountType);
 
     return NextResponse.json({
       success: true,

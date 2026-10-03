@@ -12,6 +12,7 @@ import {
   TrendingUp,
   HelpCircle,
 } from "lucide-react";
+import { authFetch } from "@/lib/auth/session";
 
 interface Message {
   id: string;
@@ -80,7 +81,7 @@ export const MikeTradesChat: React.FC = () => {
         })),
       };
 
-      const res = await fetch("/api/mike", {
+      const res = await authFetch("/api/mike", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

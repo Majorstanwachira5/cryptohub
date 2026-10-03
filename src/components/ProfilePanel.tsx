@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { AccountPerformance, ProfileSummary, Trade, AccountType } from "@/types";
+import { AccountPerformance, Permission, ProfileSummary, Trade, AccountType } from "@/types";
 import { formatMoney, formatSignedMoney } from "@/lib/fx/rates";
 import { getInitialTheme, applyTheme, Theme } from "@/lib/theme";
 import {
@@ -27,6 +27,10 @@ import {
 
 interface ProfilePanelProps {
   profile: ProfileSummary | null;
+  /** Authentication provider that issued the current access token. */
+  provider?: "local" | "supabase";
+  /** Permissions derived from the signed-in user's role. */
+  permissions?: Permission[];
   authenticated: boolean;
   currency: "USD" | "KES";
   trades: Trade[];
@@ -100,6 +104,8 @@ function PerformanceBlock({
 
 export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   profile,
+  provider = "local",
+  permissions = [],
   authenticated,
   currency,
   trades,
@@ -111,7 +117,6 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
   onOpenRiskQuiz,
   onOpenAdmin,
 }) => {
-  const [copiedToken, setCopiedToken] = useState(false);
   const [copiedAddr, setCopiedAddr] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>("dark");
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -146,23 +151,12 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
     );
   }
 
-  const { user, session, demo, real, fx, performance, referrals } = profile;
+  const { user, depositAddresses, session, demo, real, fx, performance, referrals } = profile;
   const openPositions = trades.filter(
     (t) => t.status === "OPEN" && (t.accountType || "DEMO") === accountType
   ).length;
 
-  const copyToken = async () => {
-    try {
-      await navigator.clipboard.writeText(session.token);
-      setCopiedToken(true);
-      setTimeout(() => setCopiedToken(false), 2000);
-    } catch {
-      /* clipboard unavailable */
-    }
-  };
-
-  const expiresIn = Math.max(0, session.expiresAt - Math.floor(Date.now() / 1000));
-  const expiryHours = Math.floor(expiresIn / 3600);
+  const expiryHours = Math.max(0, session.expiresAt - Math.floor(Date.now() / 1000)) / 3600;
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,9 +370,9 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
 
         <div className="space-y-2">
           {[
-            { name: "USDT (TRC-20)", addr: user.usdtAddress, key: "usdt" },
-            { name: "Bitcoin (BTC)", addr: user.btcAddress, key: "btc" },
-            { name: "Ethereum (ETH)", addr: user.ethAddress, key: "eth" },
+            { name: "USDT (TRC-20)", addr: depositAddresses.usdt, key: "usdt" },
+            { name: "Bitcoin (BTC)", addr: depositAddresses.btc, key: "btc" },
+            { name: "Ethereum (ETH)", addr: depositAddresses.eth, key: "eth" },
           ].map((item) => (
             <div
               key={item.key}
@@ -503,21 +497,60 @@ export const ProfilePanel: React.FC<ProfilePanelProps> = ({
         </div>
 
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] text-slate-400">Active HS256 JWT Session Token</span>
-          <button
-            onClick={copyToken}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
-          >
-            {copiedToken ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-            {copiedToken ? "Copied" : "Copy Token"}
-          </button>
+          <span className="text-[11px] text-slate-400">
+            Access Token &middot; {authenticated ? "verified" : "unverified"}
+          </span>
+          <span className="flex items-center gap-1.5 bg-emerald-950/40 text-emerald-300 border border-emerald-800/60 px-2.5 py-1 rounded-lg text-[10px] font-bold">
+            <ShieldCheck className="w-3 h-3" />
+            Valid for {expiryHours}h
+          </span>
         </div>
-        <code className="block font-mono text-[10px] text-slate-400 bg-slate-950 border border-slate-800 rounded-lg p-2.5 break-all">
-          {session.token}
-        </code>
+        <dl className="grid grid-cols-2 gap-2">
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+            <dt className="text-[9px] uppercase text-slate-600 font-bold">Issued</dt>
+            <dd className="text-[11px] font-mono text-slate-300">
+              {new Date(session.issuedAt * 1000).toLocaleString()}
+            </dd>
+          </div>
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+            <dt className="text-[9px] uppercase text-slate-600 font-bold">Expires</dt>
+            <dd className="text-[11px] font-mono text-slate-300">
+              {session.expiresAt ? new Date(session.expiresAt * 1000).toLocaleString() : "—"}
+            </dd>
+          </div>
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+            <dt className="text-[9px] uppercase text-slate-600 font-bold">Role</dt>
+            <dd className="text-[11px] font-mono text-cyan-400 uppercase">{user.role}</dd>
+          </div>
+          <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+            <dt className="text-[9px] uppercase text-slate-600 font-bold">Provider</dt>
+            <dd className="text-[11px] font-mono text-cyan-400 uppercase">{provider}</dd>
+          </div>
+        </dl>
+
+        <div className="mt-2">
+          <span className="text-[9px] uppercase text-slate-600 font-bold block mb-1">
+            Granted Permissions
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {permissions.length === 0 && (
+              <span className="text-[10px] text-slate-500">None</span>
+            )}
+            {permissions.map((p) => (
+              <span
+                key={p}
+                className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border bg-slate-800 text-slate-400 border-slate-700"
+              >
+                {p}
+              </span>
+            ))}
+          </div>
+        </div>
+
         <p className="text-[10px] text-slate-500 mt-2 flex gap-1.5">
           <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-px text-cyan-500" />
-          Session signed with JWT_SECRET. Protect this credential.
+          The token itself is held by your browser and sent as a bearer header on every
+          request. It is verified server-side on each call and never returned by the API.
         </p>
       </div>
 

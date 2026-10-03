@@ -1,28 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { calculatePnL, calculatePips } from "@/lib/trading/pips";
-import { AccountType } from "@/types";
+import { requireAccountAccess } from "@/lib/auth/access";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const accountType = (searchParams.get("account_type") || "DEMO") as AccountType;
 
-  const trades = db.getTrades(accountType);
-  const balance = db.getBalance(accountType);
-  return NextResponse.json({ trades, balance, accountType });
+  const auth = await requireAccountAccess(request, searchParams.get("account_type") ?? "DEMO");
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const trades = db.getTrades(auth.accountType);
+  const balance = db.getBalance(auth.accountType);
+  return NextResponse.json({ trades, balance, accountType: auth.accountType });
 }
 
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { updates, accountType = "DEMO" } = body as {
-      updates: Array<{ id: string; currentPrice: number }>;
-      accountType?: AccountType;
-    };
+    const { updates } = body as { updates?: Array<{ id: string; currentPrice: number }> };
+
+    const auth = await requireAccountAccess(request, body?.accountType ?? "DEMO");
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     if (Array.isArray(updates)) {
       for (const item of updates) {
-        const trade = db.getTrades(accountType).find((t) => t.id === item.id);
+        const trade = db.getTrades(auth.accountType).find((t) => t.id === item.id);
         if (trade && trade.status === "OPEN") {
           const pnl = calculatePnL(
             trade.entryPrice,
@@ -39,13 +47,13 @@ export async function PUT(request: NextRequest) {
             trade.symbol,
             trade.assetClass
           );
-          db.updatePositionPrice(item.id, item.currentPrice, pnl, pips, accountType);
+          db.updatePositionPrice(item.id, item.currentPrice, pnl, pips, auth.accountType);
         }
       }
     }
 
-    const updatedTrades = db.getTrades(accountType);
-    const updatedBalance = db.getBalance(accountType);
+    const updatedTrades = db.getTrades(auth.accountType);
+    const updatedBalance = db.getBalance(auth.accountType);
 
     return NextResponse.json({ trades: updatedTrades, balance: updatedBalance });
   } catch {

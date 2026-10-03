@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
-import { X, Lock, Mail, User, ShieldCheck, Check, Sparkles } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { X, Lock, Mail, User, ShieldCheck, AlertTriangle } from "lucide-react";
 import { useToast } from "./Toast";
+import { useSession } from "./SessionProvider";
+import { AccountType } from "@/types";
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLoginSuccess: (accountType: "DEMO" | "REAL") => void;
+  onLoginSuccess: (accountType: AccountType) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -15,46 +17,71 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   onLoginSuccess,
 }) => {
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [email, setEmail] = useState("alex.sterling@quantglobal.com");
-  const [password, setPassword] = useState("••••••••••••");
-  const [name, setName] = useState("Alex Sterling");
-  const [enable2FA, setEnable2FA] = useState(true);
+  const [mode, setMode] = useState<"LOGIN" | "REGISTER">("LOGIN");
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [targetAccount, setTargetAccount] = useState<AccountType>("DEMO");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { login, register, pendingAccountType, clearPendingAccount } = useSession();
   const { showToast } = useToast();
+
+  // If the user was sent here by clicking DEMO or REAL, honour that choice.
+  useEffect(() => {
+    if (pendingAccountType) setTargetAccount(pendingAccountType);
+  }, [pendingAccountType]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setError(null);
+      setPassword("");
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleAuth = async (targetAccount: "DEMO" | "REAL") => {
+  const submit = async (accountType: AccountType) => {
+    setError(null);
+
+    // Reject obviously incomplete input before spending a round trip.
+    if (!email.trim()) return setError("Enter your email address.");
+    if (!password) return setError("Enter your password.");
+    if (mode === "REGISTER" && name.trim().length < 2) {
+      return setError("Enter your full name.");
+    }
+
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          name,
-          action: isSignUp ? "signup" : "login",
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        showToast("success", "Authenticated Successfully", `Welcome to CryptoHub ${targetAccount} Terminal`);
-        onLoginSuccess(targetAccount);
-        onClose();
-      }
-    } catch {
-      onLoginSuccess(targetAccount);
+      const user =
+        mode === "REGISTER"
+          ? await register({ name, email, password })
+          : await login({ email, password });
+
+      showToast(
+        "success",
+        mode === "REGISTER" ? "Account created" : "Signed in",
+        `Welcome, ${user.name}. Opening your ${accountType} account.`
+      );
+
+      clearPendingAccount();
+      onLoginSuccess(accountType);
       onClose();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
     } finally {
       setLoading(false);
     }
   };
 
+  const isRegister = mode === "REGISTER";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-      <div className="bg-[#111726] border border-slate-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+      <div className="bg-[#111726] border border-slate-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 bg-[#0d121e] border-b border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -63,44 +90,72 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
             <div>
               <h3 className="font-extrabold text-base text-white">
-                {isSignUp ? "Create Quant Account" : "Access Trading Terminal"}
+                {isRegister ? "Create Your Account" : "Sign In"}
               </h3>
-              <p className="text-xs text-slate-400">Institutional Multi-Asset Platform</p>
+              <p className="text-xs text-slate-400">
+                {isRegister
+                  ? "Registration is required before any account can be used"
+                  : "Authenticate to reach your demo or real account"}
+              </p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+            aria-label="Close"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         <div className="p-4 sm:p-6 space-y-4 text-xs overflow-y-auto">
-          {isSignUp && (
+          {/* Mode switch */}
+          <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+            {(["LOGIN", "REGISTER"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setMode(m);
+                  setError(null);
+                }}
+                className={`flex-1 px-3 py-1.5 rounded-md font-bold transition-all ${
+                  mode === m ? "bg-cyan-500 text-slate-950 shadow" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {m === "LOGIN" ? "Sign In" : "Register"}
+              </button>
+            ))}
+          </div>
+
+          {isRegister && (
             <div>
-              <label className="text-slate-400 block mb-1 font-medium">Full Legal Name</label>
+              <label className="text-slate-400 block mb-1 font-medium">Full Name</label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                 <input
                   type="text"
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold"
+                  placeholder="Jane Kamau"
+                  className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="text-slate-400 block mb-1 font-medium">Corporate / Personal Email</label>
+            <label className="text-slate-400 block mb-1 font-medium">Email Address</label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
               <input
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold"
+                placeholder="you@example.com"
+                className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
               />
             </div>
           </div>
@@ -110,75 +165,77 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
+                autoComplete={isRegister ? "new-password" : "current-password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white font-bold"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submit(targetAccount);
+                }}
+                placeholder={isRegister ? "At least 8 characters, with a number" : "Your password"}
+                className="w-full pl-9 pr-16 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2 top-2 text-slate-500 hover:text-slate-300 px-2"
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
             </div>
+            {isRegister && (
+              <p className="text-[10px] text-slate-500 mt-1">
+                Stored as a salted scrypt hash. It is never logged or returned.
+              </p>
+            )}
           </div>
 
-          {/* 2FA setting */}
-          <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/80 border border-slate-800">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-cyan-400" />
-              <div>
-                <div className="font-bold text-white">2FA Security Protocol</div>
-                <div className="text-[10px] text-slate-400">Required for on-chain withdrawals</div>
-              </div>
+          {error && (
+            <div className="flex items-start gap-2 bg-rose-950/50 border border-rose-800 rounded-lg px-3 py-2 text-rose-300">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+              <span>{error}</span>
             </div>
-            <button
-              type="button"
-              onClick={() => setEnable2FA(!enable2FA)}
-              className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                enable2FA ? "bg-cyan-500" : "bg-slate-700"
-              }`}
-            >
-              <div
-                className={`w-4 h-4 rounded-full bg-white transition-transform ${
-                  enable2FA ? "translate-x-4" : ""
-                }`}
-              />
-            </button>
-          </div>
+          )}
 
-          {/* Action Split: Demo vs Real Choice */}
-          <div className="pt-2 space-y-2">
+          {/* Account choice */}
+          <div className="pt-1 space-y-2">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block text-center">
-              Select Initial Environment
+              {isRegister ? "Register And Open" : "Sign In To"}
             </span>
-
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => handleAuth("DEMO")}
+                onClick={() => submit("DEMO")}
                 disabled={loading}
-                className="flex flex-col items-center justify-center p-3 rounded-xl bg-gradient-to-b from-indigo-950/60 to-slate-900 border border-cyan-500/40 hover:border-cyan-400 transition-all text-center"
+                className="flex flex-col items-center justify-center p-3 rounded-xl bg-gradient-to-b from-indigo-950/60 to-slate-900 border border-cyan-500/40 hover:border-cyan-400 transition-all text-center disabled:opacity-60"
               >
-                <span className="text-xs font-black text-cyan-400">Launch DEMO</span>
+                <span className="text-xs font-black text-cyan-400">DEMO</span>
                 <span className="text-[10px] text-slate-400 mt-0.5">$10k Virtual Funds</span>
               </button>
 
               <button
                 type="button"
-                onClick={() => handleAuth("REAL")}
+                onClick={() => submit("REAL")}
                 disabled={loading}
-                className="flex flex-col items-center justify-center p-3 rounded-xl bg-gradient-to-b from-emerald-950/60 to-slate-900 border border-emerald-500/40 hover:border-emerald-400 transition-all text-center"
+                className="flex flex-col items-center justify-center p-3 rounded-xl bg-gradient-to-b from-emerald-950/60 to-slate-900 border border-emerald-500/40 hover:border-emerald-400 transition-all text-center disabled:opacity-60"
               >
-                <span className="text-xs font-black text-emerald-400">Launch REAL</span>
+                <span className="text-xs font-black text-emerald-400">REAL</span>
                 <span className="text-[10px] text-slate-400 mt-0.5">Live Capital</span>
               </button>
             </div>
+            {loading && (
+              <div className="text-center text-[11px] text-cyan-400 font-bold">
+                {isRegister ? "Creating your account…" : "Verifying credentials…"}
+              </div>
+            )}
           </div>
 
-          <div className="text-center pt-1">
-            <button
-              type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-[11px] text-slate-400 hover:text-cyan-400 transition-colors"
-            >
-              {isSignUp ? "Already have an account? Sign In" : "Need an account? Register Now"}
-            </button>
+          <div className="flex items-start gap-2 text-[10px] text-slate-500 leading-relaxed border-t border-slate-800 pt-3">
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-px text-cyan-500" />
+            <span>
+              Your password is verified on the server and never leaves it. The access token you
+              receive is checked on every request, and your role decides what you may do.
+            </span>
           </div>
         </div>
       </div>
