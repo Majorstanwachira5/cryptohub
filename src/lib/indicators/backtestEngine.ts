@@ -253,6 +253,14 @@ function maxDrawdown(curve: number[]): number {
  * historical win rate for this specific rule set on this specific series —
  * not a forecast, and not a guarantee of any future result.
  */
+/**
+ * Fewest replayed trades before a win rate is worth quoting. A strategy needs
+ * 120 warmup bars before its first eligible position, so a short real series
+ * (daily forex reference rates run to about 130 bars) yields too few trades for
+ * the percentage to carry any meaning.
+ */
+const MIN_REPORTABLE_TRADES = 30;
+
 export function runBacktest(
   config: BacktestConfig,
   timeframes: string[] = ["1H", "4H", "1D"],
@@ -312,10 +320,18 @@ export function runBacktest(
   const expectancyPercent =
     allTrades.length > 0 ? round2(stats.netPnlPercent / allTrades.length) : 0;
 
+  // A win rate over a handful of trades is noise presented as a measurement.
+  // Below the floor the figure is withheld rather than quoted.
+  const measured = supplied.length > 0;
+  const sampleSufficient = allTrades.length >= MIN_REPORTABLE_TRADES;
+  const series = measured
+    ? `real market history for ${scope.join(", ")}`
+    : `a deterministic seeded price series (${barsPerTimeframe} bars per timeframe)`;
+
   return {
     symbol: config.symbol,
     strategy: `Confluence ${config.signalThreshold}+ with ${config.atrStopMultiple} ATR stop / ${config.atrTargetMultiple} ATR target`,
-    timeframes,
+    timeframes: scope,
     totalTrades: allTrades.length,
     wins: stats.wins.length,
     losses: stats.losses.length,
@@ -332,13 +348,18 @@ export function runBacktest(
     shortWinRate:
       shortTrades.length > 0 ? round2((shortWins / shortTrades.length) * 100) : 0,
     perTimeframe,
+    /** True when the replay ran against real prices rather than generated ones. */
+    measuredOnRealHistory: measured,
+    /** False when too few trades occurred for the win rate to mean anything. */
+    sampleSufficient,
     methodology:
-      `Segmented walk-forward replay over ${barsPerTimeframe} bars per timeframe on a deterministic seeded price series. ` +
+      `Segmented walk-forward replay over ${series}. ` +
       `A position opens when the weighted confluence score exceeds +/-${config.signalThreshold} and fills at the next bar's open. ` +
       `Exit is ${config.atrStopMultiple} ATR stop, ${config.atrTargetMultiple} ATR target, or ${config.maxBarsInTrade} bars. ` +
       `Every trade is charged ${config.costBps} bps of spread and commission. Rules are fixed before the replay and never re-fitted to the sample.`,
-    disclaimer:
-      "Historical simulation only. This is a measured win rate for one rule set on one synthetic price series, not a promise of future results. Real markets include slippage, gaps and liquidity effects the model does not contain.",
+    disclaimer: measured
+      ? `Historical simulation only. This is a measured win rate for one rule set on real historical prices over ${allTrades.length} trades, not a promise of future results. Slippage, gaps and liquidity effects are only partly modelled.`
+      : "Historical simulation only. No real history was available, so this ran on a generated price series and describes no actual market. It is not a promise of future results.",
   };
 }
 

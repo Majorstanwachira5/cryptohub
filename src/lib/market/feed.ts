@@ -488,7 +488,8 @@ export async function resolveTicker(symbol: string, assetClass: AssetClass): Pro
 export async function resolveCandles(
   symbol: string,
   assetClass: AssetClass,
-  timeframe: string
+  timeframe: string,
+  limit = CHART_BARS
 ): Promise<CandleSeries> {
   try {
     if (assetClass === "CRYPTO") {
@@ -496,7 +497,7 @@ export async function resolveCandles(
         symbol,
         interval: toBinanceInterval(timeframe),
         timeframeHonoured: true,
-        candles: await fetchBinanceCandles(symbol, timeframe),
+        candles: await fetchBinanceCandles(symbol, timeframe, limit),
         source: "binance",
         delayed: false,
       };
@@ -507,7 +508,7 @@ export async function resolveCandles(
         symbol,
         interval: toTwelveInterval(timeframe),
         timeframeHonoured: true,
-        candles: await fetchTwelveCandles(symbol, timeframe),
+        candles: await fetchTwelveCandles(symbol, timeframe, limit),
         source: "twelvedata",
         delayed: false,
       };
@@ -552,7 +553,7 @@ export async function getSeriesForAnalysis(
   const settled = await Promise.all(
     timeframes.map(async (tf) => {
       try {
-        const series = await getCandles(symbol, assetClass, tf);
+        const series = await getCandles(symbol, assetClass, tf, ANALYSIS_BARS);
         if (series.candles.length === 0) return [tf, null] as const;
 
         // A daily reference rate is still real data, so `delayed` does not
@@ -620,6 +621,18 @@ async function cached<T>(
   return pending;
 }
 
+/** Bars the chart renders. Enough to fill the viewport without a heavy payload. */
+const CHART_BARS = 200;
+
+/**
+ * Bars the analysis engine replays.
+ *
+ * The strategy needs 120 warmup bars before its first eligible position and 260
+ * bars of lookback per evaluation, so 200 bars left too few trades to measure
+ * anything. Binance serves up to 1000 klines per request.
+ */
+const ANALYSIS_BARS = 1000;
+
 export function getTicker(symbol: string, assetClass: AssetClass): Promise<Ticker> {
   return cached(tickerCache, `${symbol}:t`, TICKER_TTL_MS, () => resolveTicker(symbol, assetClass));
 }
@@ -627,10 +640,13 @@ export function getTicker(symbol: string, assetClass: AssetClass): Promise<Ticke
 export function getCandles(
   symbol: string,
   assetClass: AssetClass,
-  timeframe: string
+  timeframe: string,
+  limit = CHART_BARS
 ): Promise<CandleSeries> {
-  return cached(candleCache, `${symbol}:${timeframe}:c`, CANDLES_TTL_MS, () =>
-    resolveCandles(symbol, assetClass, timeframe)
+  // The limit is part of the cache key: a 200-bar chart response must never be
+  // handed to a caller that asked for 1000.
+  return cached(candleCache, `${symbol}:${timeframe}:${limit}:c`, CANDLES_TTL_MS, () =>
+    resolveCandles(symbol, assetClass, timeframe, limit)
   );
 }
 

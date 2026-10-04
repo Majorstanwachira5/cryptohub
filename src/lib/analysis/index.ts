@@ -495,7 +495,15 @@ export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport
   const volatilityProfile = buildVolatilityProfile(candles, digits);
   const levels = findSupportResistance(candles, 5);
 
-  if (backtest && backtest.totalTrades > 0) {
+  if (backtest && !backtest.sampleSufficient) {
+    notes.push(
+      `Replay produced only ${backtest.totalTrades} trade${backtest.totalTrades === 1 ? "" : "s"} ` +
+        `over ${backtest.timeframes.join(", ")} history, which is too few to quote a win rate. ` +
+        (backtest.measuredOnRealHistory
+          ? "A longer history is needed before this strategy can be judged."
+          : "No market history was available, so no measured rate is shown.")
+    );
+  } else if (backtest && backtest.totalTrades > 0) {
     const rr = DEFAULT_BACKTEST_CONFIG.atrTargetMultiple / DEFAULT_BACKTEST_CONFIG.atrStopMultiple;
     const hurdle = breakEvenWinRate(rr);
     notes.push(

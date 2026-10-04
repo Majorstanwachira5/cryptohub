@@ -152,8 +152,9 @@ export async function GET(request: NextRequest) {
     takeProfit: report.setup?.takeProfit ?? fallbackTarget,
     stopLoss: report.setup?.stopLoss ?? fallbackStop,
     riskRewardRatio: `1:${(report.setup?.riskRewardRatio ?? 2).toFixed(1)}`,
-    winRateEstimate:
-      replay.totalTrades > 0
+    winRateEstimate: !replay.sampleSufficient
+      ? `insufficient sample: ${replay.totalTrades} trades over ${replay.timeframes.join(", ")} history`
+      : replay.totalTrades > 0
         ? measured
           ? `${replay.winRate}% over ${replay.totalTrades} replayed trades`
           : `${replay.winRate}% over ${replay.totalTrades} simulated trades, not measured on market history`

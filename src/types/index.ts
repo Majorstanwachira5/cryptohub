@@ -353,6 +353,10 @@ export interface BacktestSummary {
   longWinRate: number;
   shortWinRate: number;
   perTimeframe: Record<string, { trades: number; winRate: number; netPnlPercent: number }>;
+  /** True when the replay ran against real prices rather than generated ones. */
+  measuredOnRealHistory: boolean;
+  /** False when too few trades occurred for the win rate to mean anything. */
+  sampleSufficient: boolean;
   methodology: string;
   disclaimer: string;
 }
