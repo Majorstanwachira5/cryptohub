@@ -69,10 +69,10 @@ function PerformanceBlock({
           <div className="text-[9px] uppercase text-slate-600">Win rate</div>
           <div
             className={`text-sm font-black ${
-              data.winRate >= 50 ? "text-emerald-400" : "text-rose-400"
+              (data.winRate ?? 0) >= 50 ? "text-emerald-400" : "text-rose-400"
             }`}
           >
-            {data.winRate}%
+            {data.winRate === null ? "—" : `${data.winRate}%`}
           </div>
         </div>
         <div>

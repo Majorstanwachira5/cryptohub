@@ -459,8 +459,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                 <Stat label="Closed" value={perf.closedTrades.toString()} />
                 <Stat
                   label="Win Rate"
-                  value={`${perf.winRate}%`}
-                  tone={perf.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}
+                  value={perf.winRate === null ? "—" : `${perf.winRate}%`}
+                  tone={(perf.winRate ?? 0) >= 50 ? "text-emerald-400" : "text-rose-400"}
                 />
                 <Stat
                   label="Net PnL"
@@ -499,8 +499,8 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                 />
                 <Stat
                   label="Win Rate"
-                  value={`${bt.winRate}%`}
-                  tone={bt.winRate >= 50 ? "text-emerald-400" : "text-rose-400"}
+                  value={bt.winRate === null ? "—" : `${bt.winRate}%`}
+                  tone={(bt.winRate ?? 0) >= 50 ? "text-emerald-400" : "text-rose-400"}
                 />
                 <Stat
                   label="Net PnL"
@@ -533,7 +533,7 @@ export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({
                       <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full ${style.bar}`}
-                          style={{ width: `${Math.min(100, stats.winRate)}%` }}
+                          style={{ width: `${Math.min(100, stats.winRate ?? 0)}%` }}
                         />
                       </div>
                       <span className="w-32 text-right font-mono text-slate-400">

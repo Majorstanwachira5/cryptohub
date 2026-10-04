@@ -507,9 +507,9 @@ export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport
     const rr = DEFAULT_BACKTEST_CONFIG.atrTargetMultiple / DEFAULT_BACKTEST_CONFIG.atrStopMultiple;
     const hurdle = breakEvenWinRate(rr);
     notes.push(
-      `Measured strategy win rate over ${backtest.totalTrades} replayed trades is ${backtest.winRate}%. ` +
+      `Measured strategy win rate over ${backtest.totalTrades} replayed trades is ${backtest.winRate ?? "n/a"}%. ` +
         `A 1:${rr.toFixed(1)} payoff needs ${hurdle}% to break even, so the sample is ${
-          backtest.winRate >= hurdle ? "above" : "below"
+          (backtest.winRate ?? 0) >= hurdle ? "above" : "below"
         } its own hurdle.`
     );
     if (backtest.maxDrawdownPercent > 0) {
@@ -520,7 +520,7 @@ export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport
   if (performance) {
     notes.push(
       `${performance.closedTrades} closed ${accountType} trade${performance.closedTrades === 1 ? "" : "s"} on record: ` +
-        `${performance.wins}W / ${performance.losses}L, ${performance.winRate}% win rate, net ${
+        `${performance.wins}W / ${performance.losses}L, ${performance.winRate ?? "n/a"}% win rate, net ${
           performance.netPnl >= 0 ? "+" : ""
         }$${performance.netPnl.toFixed(2)}.`
     );

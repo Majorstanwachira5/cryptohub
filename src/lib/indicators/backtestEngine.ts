@@ -1,11 +1,11 @@
 import {
   AssetClass,
+  BacktestStatus,
   BacktestSummary,
   BacktestTrade,
   Candle,
   TradeDirection,
 } from "@/types";
-import { generateCandleHistory, hashSeed } from "@/lib/market/assets";
 import { calculateATR } from "./technical";
 import { buildSignals, computeConfluence } from "./signals";
 
@@ -48,7 +48,7 @@ export interface BacktestConfig {
   symbol: string;
   assetClass: AssetClass;
   digits: number;
-  /** Base per-bar volatility used to synthesise the replay series. */
+  /** Base per-bar volatility used for risk estimation. */
   volatility: number;
   /** Minimum absolute confluence score to open a position. */
   signalThreshold: number;
@@ -81,23 +81,6 @@ export const DEFAULT_BACKTEST_CONFIG: Omit<
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
-
-/**
- * Builds the deterministic price series the replay runs against.
- *
- * A fixed per-symbol seed means the replay is reproducible: the same symbol
- * always yields the same sample, so published statistics stay comparable
- * between runs instead of drifting on every request.
- */
-function buildReplaySeries(config: BacktestConfig, bars: number, seedSuffix: string): Candle[] {
-  return generateCandleHistory(
-    1000,
-    config.volatility,
-    bars,
-    TIMEFRAME_SECONDS["1H"],
-    hashSeed(`${config.symbol}:${seedSuffix}:${config.volatility}`)
-  );
-}
 
 interface ReplayResult {
   trades: BacktestTrade[];
@@ -209,6 +192,8 @@ function replayTimeframe(config: BacktestConfig, candles: Candle[]): ReplayResul
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
+export const MIN_REPORTABLE_TRADES = 30;
+
 function summarizeTrades(trades: BacktestTrade[]) {
   const wins = trades.filter((t) => t.outcome === "WIN");
   const losses = trades.filter((t) => t.outcome === "LOSS");
@@ -218,6 +203,13 @@ function summarizeTrades(trades: BacktestTrade[]) {
   const grossLoss = round2(Math.abs(losses.reduce((a, t) => a + t.pnlPercent, 0)));
   const netPnlPercent = round2(trades.reduce((a, t) => a + t.pnlPercent, 0));
 
+  const winRate =
+    trades.length >= MIN_REPORTABLE_TRADES
+      ? round2((wins.length / trades.length) * 100)
+      : null;
+  const winRateStatus: "calculated" | "insufficient_sample" =
+    trades.length >= MIN_REPORTABLE_TRADES ? "calculated" : "insufficient_sample";
+
   return {
     wins,
     losses,
@@ -225,7 +217,8 @@ function summarizeTrades(trades: BacktestTrade[]) {
     grossProfit,
     grossLoss,
     netPnlPercent,
-    winRate: trades.length > 0 ? round2((wins.length / trades.length) * 100) : 0,
+    winRate,
+    winRateStatus,
     averageWinPercent: wins.length > 0 ? round2(grossProfit / wins.length) : 0,
     averageLossPercent: losses.length > 0 ? round2(grossLoss / losses.length) : 0,
     profitFactor: grossLoss > 0 ? round2(grossProfit / grossLoss) : null,
@@ -244,60 +237,79 @@ function maxDrawdown(curve: number[]): number {
 }
 
 /**
- * Runs the signal strategy over a deterministic replay of each requested
- * timeframe and aggregates the result.
+ * Runs the signal strategy over verified historical bars and aggregates results.
  *
- * Parameters are fixed before the replay begins and are never re-tuned from the
- * data, so every reported trade is out-of-sample with respect to parameter
- * selection. Costs are charged on every trade. The output is a measured
- * historical win rate for this specific rule set on this specific series —
- * not a forecast, and not a guarantee of any future result.
+ * Requirements:
+ * 1. REAL BARS ONLY: Does not generate synthetic bars or fallback to seeded random walks.
+ * 2. 30-TRADE MINIMUM: If fewer than 30 trades occurred, winRate is strictly null.
+ * 3. TRANSPARENCY: Accurately reflects data source, total bars evaluated, and measurement status.
  */
-/**
- * Fewest replayed trades before a win rate is worth quoting. A strategy needs
- * 120 warmup bars before its first eligible position, so a short real series
- * (daily forex reference rates run to about 130 bars) yields too few trades for
- * the percentage to carry any meaning.
- */
-const MIN_REPORTABLE_TRADES = 30;
-
 export function runBacktest(
   config: BacktestConfig,
   timeframes: string[] = ["1H", "4H", "1D"],
-  barsPerTimeframe = 900,
+  _barsPerTimeframe = 900,
   realSeries?: Partial<Record<string, Candle[]>>
 ): BacktestSummary {
   const perTimeframe: BacktestSummary["perTimeframe"] = {};
   const allTrades: BacktestTrade[] = [];
 
+  // Filter to timeframes that actually have real bars supplied
   const supplied = timeframes.filter((tf) => (realSeries?.[tf]?.length ?? 0) > 0);
 
-  // When real history is supplied the replay covers only the timeframes it
-  // actually contains. Padding the remainder with generated bars would report a
-  // pooled win rate that mixes measured prices with invented ones.
-  const scope = supplied.length > 0 ? supplied : timeframes;
+  if (supplied.length === 0) {
+    return {
+      symbol: config.symbol,
+      strategy: `Confluence ${config.signalThreshold}+ with ${config.atrStopMultiple} ATR stop / ${config.atrTargetMultiple} ATR target`,
+      timeframes: [],
+      totalTrades: 0,
+      wins: 0,
+      losses: 0,
+      breakevens: 0,
+      winRate: null,
+      winRateStatus: "unavailable",
+      netPnlPercent: 0,
+      averageWinPercent: 0,
+      averageLossPercent: 0,
+      profitFactor: null,
+      expectancyPercent: 0,
+      maxDrawdownPercent: 0,
+      longWinRate: null,
+      shortWinRate: null,
+      perTimeframe: {},
+      measuredOnRealHistory: false,
+      sampleSufficient: false,
+      status: "unavailable",
+      methodology:
+        "Historical backtest unavailable: no verified historical market data is currently present in database or provider feeds.",
+      disclaimer:
+        "No verified market history available. The platform never synthesizes or fabricates performance numbers.",
+      barsEvaluated: 0,
+    };
+  }
 
-  for (const timeframe of scope) {
-    const step = TIMEFRAME_SECONDS[timeframe] ?? 3600;
-    const factor = Math.max(1, Math.round(step / TIMEFRAME_SECONDS["1H"]));
+  let totalBarsEvaluated = 0;
 
-    const real = realSeries?.[timeframe];
-    const series =
-      real && real.length > 0
-        ? real
-        : factor > 1
-          ? aggregateCandles(
-              buildReplaySeries(config, barsPerTimeframe * factor, timeframe),
-              factor
-            )
-          : buildReplaySeries(config, barsPerTimeframe * factor, timeframe);
+  for (const timeframe of supplied) {
+    const series = realSeries?.[timeframe];
+    // Need at least warmupBars + lookback to yield even a single trade
+    if (!series || series.length < config.warmupBars + 10) {
+      perTimeframe[timeframe] = {
+        trades: 0,
+        winRate: null,
+        winRateStatus: "insufficient_data",
+        netPnlPercent: 0,
+      };
+      continue;
+    }
 
+    totalBarsEvaluated += series.length;
     const result = replayTimeframe(config, series);
     const stats = summarizeTrades(result.trades);
 
     perTimeframe[timeframe] = {
       trades: result.trades.length,
       winRate: stats.winRate,
+      winRateStatus: stats.winRateStatus,
       netPnlPercent: stats.netPnlPercent,
     };
 
@@ -310,8 +322,6 @@ export function runBacktest(
   const longWins = longTrades.filter((t) => t.outcome === "WIN").length;
   const shortWins = shortTrades.filter((t) => t.outcome === "WIN").length;
 
-  // Equity curve rebuilt across the pooled trades so drawdown reflects the
-  // combined sample rather than each timeframe in isolation.
   const pooledCurve = [0];
   for (const trade of allTrades) {
     pooledCurve.push(round2(pooledCurve[pooledCurve.length - 1] + trade.pnlPercent));
@@ -320,23 +330,19 @@ export function runBacktest(
   const expectancyPercent =
     allTrades.length > 0 ? round2(stats.netPnlPercent / allTrades.length) : 0;
 
-  // A win rate over a handful of trades is noise presented as a measurement.
-  // Below the floor the figure is withheld rather than quoted.
-  const measured = supplied.length > 0;
   const sampleSufficient = allTrades.length >= MIN_REPORTABLE_TRADES;
-  const series = measured
-    ? `real market history for ${scope.join(", ")}`
-    : `a deterministic seeded price series (${barsPerTimeframe} bars per timeframe)`;
+  const status: BacktestStatus = sampleSufficient ? "measured" : "insufficient_data";
 
   return {
     symbol: config.symbol,
     strategy: `Confluence ${config.signalThreshold}+ with ${config.atrStopMultiple} ATR stop / ${config.atrTargetMultiple} ATR target`,
-    timeframes: scope,
+    timeframes: supplied,
     totalTrades: allTrades.length,
     wins: stats.wins.length,
     losses: stats.losses.length,
     breakevens: stats.breakevens,
     winRate: stats.winRate,
+    winRateStatus: stats.winRateStatus,
     netPnlPercent: stats.netPnlPercent,
     averageWinPercent: stats.averageWinPercent,
     averageLossPercent: stats.averageLossPercent,
@@ -344,22 +350,28 @@ export function runBacktest(
     expectancyPercent,
     maxDrawdownPercent: maxDrawdown(pooledCurve),
     longWinRate:
-      longTrades.length > 0 ? round2((longWins / longTrades.length) * 100) : 0,
+      longTrades.length >= MIN_REPORTABLE_TRADES
+        ? round2((longWins / longTrades.length) * 100)
+        : null,
     shortWinRate:
-      shortTrades.length > 0 ? round2((shortWins / shortTrades.length) * 100) : 0,
+      shortTrades.length >= MIN_REPORTABLE_TRADES
+        ? round2((shortWins / shortTrades.length) * 100)
+        : null,
     perTimeframe,
-    /** True when the replay ran against real prices rather than generated ones. */
-    measuredOnRealHistory: measured,
-    /** False when too few trades occurred for the win rate to mean anything. */
+    measuredOnRealHistory: true,
     sampleSufficient,
-    methodology:
-      `Segmented walk-forward replay over ${series}. ` +
-      `A position opens when the weighted confluence score exceeds +/-${config.signalThreshold} and fills at the next bar's open. ` +
-      `Exit is ${config.atrStopMultiple} ATR stop, ${config.atrTargetMultiple} ATR target, or ${config.maxBarsInTrade} bars. ` +
-      `Every trade is charged ${config.costBps} bps of spread and commission. Rules are fixed before the replay and never re-fitted to the sample.`,
-    disclaimer: measured
-      ? `Historical simulation only. This is a measured win rate for one rule set on real historical prices over ${allTrades.length} trades, not a promise of future results. Slippage, gaps and liquidity effects are only partly modelled.`
-      : "Historical simulation only. No real history was available, so this ran on a generated price series and describes no actual market. It is not a promise of future results.",
+    status,
+    methodology: sampleSufficient
+      ? `Segmented walk-forward replay over verified market history for ${supplied.join(", ")} (${totalBarsEvaluated} total bars evaluated). ` +
+        `A position opens when confluence score exceeds +/-${config.signalThreshold} and fills at next bar open. ` +
+        `Exit is ${config.atrStopMultiple} ATR stop, ${config.atrTargetMultiple} ATR target, or ${config.maxBarsInTrade} bars. ` +
+        `Every trade incurs ${config.costBps} bps round-turn cost.`
+      : `Evaluated ${totalBarsEvaluated} verified bars across ${supplied.join(", ")}. Generated ${allTrades.length} trade(s). ` +
+        `Win rate withheld: sample contains fewer than ${MIN_REPORTABLE_TRADES} trades required for statistically sound measurement.`,
+    disclaimer: sampleSufficient
+      ? `Historical simulation only over ${allTrades.length} actual replayed trades on verified market data. Not a guarantee of future performance.`
+      : `Insufficient historical trade sample (${allTrades.length}/${MIN_REPORTABLE_TRADES} trades). Win rate is withheld rather than quoted prematurely.`,
+    barsEvaluated: totalBarsEvaluated,
   };
 }
 

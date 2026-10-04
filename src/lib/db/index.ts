@@ -6,6 +6,8 @@ import {
   PredictionResult,
   AccountType,
   ReferralRecord,
+  Candle,
+  Ticker,
 } from "@/types";
 import { getFxRates } from "@/lib/fx/rates";
 import { loadState, saveState, flushState, describeStorage } from "./persistence";
@@ -68,12 +70,22 @@ interface UserRecord {
   createdAt: string;
 }
 
+interface MarketCandlesRecord {
+  symbol: string;
+  timeframe: string;
+  candles: Candle[];
+  updatedAt: number;
+  source: string;
+}
+
 interface PersistedState {
   version: number;
   users: Record<string, UserRecord>;
   accounts: Record<string, Record<AccountType, AccountState>>;
   referrals: Record<string, ReferralRecord[]>;
   predictions: PredictionResult[];
+  marketCandles: Record<string, MarketCandlesRecord>;
+  tickers: Record<string, Ticker>;
   totalPlatformVolume: number;
   totalPlatformRevenue: number;
 }
@@ -85,6 +97,8 @@ function emptyState(): PersistedState {
     accounts: {},
     referrals: {},
     predictions: [],
+    marketCandles: {},
+    tickers: {},
     totalPlatformVolume: 0,
     totalPlatformRevenue: 0,
   };
@@ -633,10 +647,54 @@ class DatabaseStore {
       openDemoPositions,
       openRealPositions,
       averageWinRate:
-        decided > 0 ? `${Math.round((wins / decided) * 1000) / 10}%` : "—",
+        decided >= 30 ? `${Math.round((wins / decided) * 1000) / 10}%` : "Insufficient trades (<30)",
       openPositions: closed.filter((t) => t.status === "OPEN").length,
       totalTrades: closed.length,
     };
+  }
+
+  /** Gets cached validated candles for a symbol and timeframe from durable store. */
+  getCandles(
+    symbol: string,
+    timeframe: string
+  ): { candles: Candle[]; updatedAt: number; source: string } | null {
+    if (!this.state.marketCandles) this.state.marketCandles = {};
+    const key = `${symbol.toUpperCase()}:${timeframe}`;
+    const record = this.state.marketCandles[key];
+    if (!record || !record.candles || record.candles.length === 0) return null;
+    return record;
+  }
+
+  /** Saves validated candles to durable store. */
+  saveCandles(
+    symbol: string,
+    timeframe: string,
+    candles: Candle[],
+    source: string
+  ): void {
+    if (!this.state.marketCandles) this.state.marketCandles = {};
+    const key = `${symbol.toUpperCase()}:${timeframe}`;
+    this.state.marketCandles[key] = {
+      symbol: symbol.toUpperCase(),
+      timeframe,
+      candles,
+      updatedAt: Date.now(),
+      source,
+    };
+    saveState(STORE_FILE, this.state);
+  }
+
+  /** Gets latest ticker from store. */
+  getLatestTicker(symbol: string): Ticker | null {
+    if (!this.state.tickers) this.state.tickers = {};
+    return this.state.tickers[symbol.toUpperCase()] || null;
+  }
+
+  /** Saves latest ticker to store. */
+  saveTicker(ticker: Ticker): void {
+    if (!this.state.tickers) this.state.tickers = {};
+    this.state.tickers[ticker.symbol.toUpperCase()] = ticker;
+    saveState(STORE_FILE, this.state);
   }
 
   /** All trades across all accounts, newest first. Admin surfaces only. */

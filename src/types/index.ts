@@ -310,7 +310,9 @@ export interface AccountPerformance {
   closedTrades: number;
   wins: number;
   losses: number;
-  winRate: number;
+  winRate: number | null;
+  winRateStatus?: "calculated" | "insufficient_sample";
+  sampleSufficient?: boolean;
   netPnl: number;
   grossProfit: number;
   grossLoss: number;
@@ -334,6 +336,8 @@ export interface BacktestTrade {
   exitReason: "TARGET" | "STOP" | "TIME";
 }
 
+export type BacktestStatus = "measured" | "insufficient_data" | "unavailable";
+
 export interface BacktestSummary {
   symbol: string;
   strategy: string;
@@ -342,7 +346,8 @@ export interface BacktestSummary {
   wins: number;
   losses: number;
   breakevens: number;
-  winRate: number;
+  winRate: number | null;
+  winRateStatus?: "calculated" | "insufficient_sample" | "unavailable";
   netPnlPercent: number;
   averageWinPercent: number;
   averageLossPercent: number;
@@ -350,15 +355,18 @@ export interface BacktestSummary {
   expectancyPercent: number;
   maxDrawdownPercent: number;
   /** Fraction of long trades that won, for directional bias detection. */
-  longWinRate: number;
-  shortWinRate: number;
-  perTimeframe: Record<string, { trades: number; winRate: number; netPnlPercent: number }>;
+  longWinRate: number | null;
+  shortWinRate: number | null;
+  perTimeframe: Record<string, { trades: number; winRate: number | null; winRateStatus?: string; netPnlPercent: number }>;
   /** True when the replay ran against real prices rather than generated ones. */
   measuredOnRealHistory: boolean;
-  /** False when too few trades occurred for the win rate to mean anything. */
+  /** False when too few trades occurred for the win rate to mean anything (min 30). */
   sampleSufficient: boolean;
+  status: BacktestStatus;
   methodology: string;
   disclaimer: string;
+  dataSource?: string;
+  barsEvaluated?: number;
 }
 
 export interface PredictionResult {
@@ -391,6 +399,22 @@ export interface Candle {
   volume: number;
 }
 
+export type FeedSource = "binance" | "twelvedata" | "ecb" | "database" | "unavailable" | "fallback";
+export type FreshnessState = "live" | "stale" | "delayed" | "unavailable";
+
+export interface Ticker {
+  symbol: string;
+  price: number;
+  change24h: number;
+  high24h: number;
+  low24h: number;
+  volume24h: number;
+  source: FeedSource;
+  delayed: boolean;
+  timestamp: number;
+  freshness: FreshnessState;
+}
+
 export interface MarketAsset {
   symbol: string;
   name: string;
@@ -402,4 +426,7 @@ export interface MarketAsset {
   volume24h: string;
   digits: number;
   spread: number;
+  source?: FeedSource;
+  freshness?: FreshnessState;
+  timestamp?: number;
 }
