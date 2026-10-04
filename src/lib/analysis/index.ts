@@ -51,52 +51,48 @@ interface TimeframeSeries {
   candles: Candle[];
 }
 
+/**
+ * Real bars for the requested timeframes, when the market feed can supply them.
+ *
+ * Without this the report is computed from a seeded random walk, which meant the
+ * Analysis panel described a series that had nothing to do with the chart the
+ * user was looking at. Where real history exists it is used; where the feed has
+ * nothing, the synthetic generator remains as an explicit fallback.
+ */
+export type RealSeries = Partial<Record<string, Candle[]>>;
+
 function buildTimeframeSeries(
   symbol: string,
   price: number,
   volatility: number,
-  timeframes: string[]
+  timeframes: string[],
+  realSeries?: RealSeries
 ): TimeframeSeries[] {
-  const intraday = timeframes.filter((tf) => (TIMEFRAME_SECONDS[tf] ?? 3600) < 3600);
-
-  const base = intraday.length
-    ? []
-    : generateBase(symbol, price, volatility);
-
   const out: TimeframeSeries[] = [];
 
   for (const timeframe of timeframes) {
-    const step = TIMEFRAME_SECONDS[timeframe] ?? 3600;
-
-    if (step < 3600) {
-      // Sub-hour data cannot be derived from hourly bars, so it is generated
-      // directly at the requested interval and kept to a workable depth.
-      out.push({
-        timeframe,
-        candles: generateBase(symbol, price, volatility, step, 420, `intraday:${timeframe}`),
-      });
+    const real = realSeries?.[timeframe];
+    if (real && real.length > 0) {
+      out.push({ timeframe, candles: real });
       continue;
     }
 
-    const factor = Math.max(1, Math.round(step / 3600));
-    if (base.length === 0) {
+    const step = TIMEFRAME_SECONDS[timeframe] ?? 3600;
+
+    // Higher timeframes are a genuine aggregation of the 1H base rather than an
+    // independent series that could disagree with it.
+    if (step > 3600 && realSeries?.["1H"] && realSeries["1H"].length > 0) {
+      const factor = Math.max(1, Math.round(step / 3600));
       out.push({
         timeframe,
-        candles: generateBase(
-          symbol,
-          price,
-          volatility * Math.sqrt(factor),
-          step,
-          720,
-          timeframe
-        ),
+        candles: aggregateCandles(realSeries["1H"], factor).slice(-720),
       });
       continue;
     }
 
     out.push({
       timeframe,
-      candles: aggregateCandles(base, factor).slice(-720),
+      candles: generateBase(symbol, price, volatility, step, 720, timeframe),
     });
   }
 
@@ -369,6 +365,11 @@ export interface BuildReportOptions {
   accountType: AccountType;
   currentPrice?: number;
   includeBacktest?: boolean;
+  /**
+   * Real historical bars keyed by timeframe. Supplied by the caller from the
+   * market feed so the report scores the same series the chart is drawing.
+   */
+  realSeries?: RealSeries;
 }
 
 const REPORT_TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D"];
@@ -400,7 +401,7 @@ export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport
   const requested = REPORT_TIMEFRAMES.includes(timeframe) ? timeframe : "1H";
   const orderedTimeframes = [requested, ...REPORT_TIMEFRAMES.filter((tf) => tf !== requested)];
 
-  const series = buildTimeframeSeries(symbol, price, volatility, orderedTimeframes);
+  const series = buildTimeframeSeries(symbol, price, volatility, orderedTimeframes, options.realSeries);
   const primary = series.find((s) => s.timeframe === requested) || series[0];
   const candles = primary.candles;
 
@@ -473,13 +474,21 @@ export function buildAnalysisReport(options: BuildReportOptions): AnalysisReport
   const performance = computeAccountPerformance(db.getTrades(userId, accountType), accountType);
 
   const backtest = includeBacktest
-    ? runBacktest({
-        ...DEFAULT_BACKTEST_CONFIG,
-        symbol: asset.symbol,
-        assetClass: asset.assetClass,
-        digits,
-        volatility,
-      })
+    ? runBacktest(
+        {
+          ...DEFAULT_BACKTEST_CONFIG,
+          symbol: asset.symbol,
+          assetClass: asset.assetClass,
+          digits,
+          volatility,
+        },
+        // Replay the same real history the signals were computed from. Running
+        // the win rate against generated prices while the signals came from the
+        // market would report a measured figure for a series nobody traded.
+        ["1H", "4H", "1D"],
+        900,
+        options.realSeries
+      )
     : null;
 
   const trend = buildTrendProfile(candles, digits);

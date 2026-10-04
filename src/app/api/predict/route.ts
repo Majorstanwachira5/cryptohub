@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DEFAULT_ASSETS } from "@/lib/market/assets";
+import { getTicker, getSeriesForAnalysis } from "@/lib/market/feed";
 import { buildAnalysisReport } from "@/lib/analysis";
 import {
   DEFAULT_BACKTEST_CONFIG,
@@ -12,27 +13,50 @@ import { AssetClass, BacktestSummary, PredictionResult } from "@/types";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Replay results are cached per symbol. The series is seeded from the symbol,
- * not the clock, so a cached result stays valid for the life of the process
- * and repeated requests do not re-run the whole sample.
- */
+/** Timeframes the report scores, in the order it prefers them. */
+const REPORT_TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D"];
+
 const replayCache = new Map<string, BacktestSummary>();
 
-function getReplay(symbol: string, assetClass: AssetClass, digits: number): BacktestSummary {
+/**
+ * Replay results are cached per symbol, but only when the replay actually ran
+ * against real history. Caching a result produced from generated prices would
+ * pin a fabricated win rate for the life of the process, and the Analysis panel
+ * computing the same figure from real bars would then disagree with it.
+ */
+async function getReplay(
+  symbol: string,
+  assetClass: AssetClass,
+  digits: number
+): Promise<{ summary: BacktestSummary; measured: boolean }> {
   const key = `${symbol}:${digits}`;
   const cached = replayCache.get(key);
-  if (cached) return cached;
+  if (cached) return { summary: cached, measured: true };
 
-  const summary = runBacktest({
-    ...DEFAULT_BACKTEST_CONFIG,
-    symbol,
-    assetClass,
-    digits,
-    volatility: assetClass === "FOREX" ? 0.003 : 0.015,
-  });
-  replayCache.set(key, summary);
-  return summary;
+  const realSeries = await getSeriesForAnalysis(symbol, assetClass, REPORT_TIMEFRAMES);
+  const measured = Object.keys(realSeries).length > 0;
+
+  if (!measured) {
+    console.warn(
+      `[predict] ${symbol}: no real history available, replay is running on generated prices`
+    );
+  }
+
+  const summary = runBacktest(
+    {
+      ...DEFAULT_BACKTEST_CONFIG,
+      symbol,
+      assetClass,
+      digits,
+      volatility: assetClass === "FOREX" ? 0.003 : 0.015,
+    },
+    ["1H", "4H", "1D"],
+    900,
+    realSeries
+  );
+
+  if (measured) replayCache.set(key, summary);
+  return { summary, measured };
 }
 
 export async function GET(request: NextRequest) {
@@ -51,9 +75,13 @@ export async function GET(request: NextRequest) {
 
   // Backtest mode returns the measured replay, not a curated example.
   if (mode === "backtest") {
-    return NextResponse.json(
-      getReplay(asset.symbol, asset.assetClass as AssetClass, asset.digits)
+    // Awaited: serialising the promise itself would send an empty object.
+    const { summary, measured } = await getReplay(
+      asset.symbol,
+      asset.assetClass as AssetClass,
+      asset.digits
     );
+    return NextResponse.json({ ...summary, measuredOnRealHistory: measured });
   }
 
   // An override is an administrator broadcast. A non-admin never receives one,
@@ -69,10 +97,18 @@ export async function GET(request: NextRequest) {
   }
 
   const priceParam = searchParams.get("current_price");
-  const actualPrice = priceParam ? parseFloat(priceParam) : asset.currentPrice;
+  // The server's own quote is authoritative. The browser's copy is only used
+  // when the feed is unavailable, so a stale client cannot skew the signal.
+  const ticker = await getTicker(asset.symbol, asset.assetClass);
+  const actualPrice = priceParam && Number.isFinite(parseFloat(priceParam))
+    ? parseFloat(priceParam)
+    : ticker.price;
 
   // The quick signal is a view of the same report the Analysis Engine renders,
-  // so the two panels can never contradict each other.
+  // so the two panels can never contradict each other. Both are scored on the
+  // same real history.
+  const realSeries = await getSeriesForAnalysis(asset.symbol, asset.assetClass, REPORT_TIMEFRAMES);
+
   const report = buildAnalysisReport({
     userId: platformUserId(auth.identity),
     symbol: asset.symbol,
@@ -80,9 +116,14 @@ export async function GET(request: NextRequest) {
     accountType: auth.accountType,
     currentPrice: actualPrice,
     includeBacktest: false,
+    realSeries,
   });
 
-  const replay = getReplay(asset.symbol, asset.assetClass as AssetClass, asset.digits);
+  const { summary: replay, measured } = await getReplay(
+    asset.symbol,
+    asset.assetClass as AssetClass,
+    asset.digits
+  );
 
   const direction = report.bias === "BEARISH" ? "SHORT" : "LONG";
   const atr = report.volatility.atr;
@@ -113,7 +154,9 @@ export async function GET(request: NextRequest) {
     riskRewardRatio: `1:${(report.setup?.riskRewardRatio ?? 2).toFixed(1)}`,
     winRateEstimate:
       replay.totalTrades > 0
-        ? `${replay.winRate}% over ${replay.totalTrades} replayed trades`
+        ? measured
+          ? `${replay.winRate}% over ${replay.totalTrades} replayed trades`
+          : `${replay.winRate}% over ${replay.totalTrades} simulated trades, not measured on market history`
         : "insufficient replay sample",
     indicators: {
       rsi: rsiSignal ? Number(rsiSignal.value) : 50,

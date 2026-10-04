@@ -8,6 +8,7 @@ import {
   UTCTimestamp,
   ColorType,
 } from "lightweight-charts";
+import { AlertTriangle } from "lucide-react";
 import { Candle, MarketAsset } from "@/types";
 import { calculateEMA } from "@/lib/indicators/technical";
 
@@ -19,6 +20,8 @@ interface TradingViewChartProps {
   entryPrice?: number;
   timeframe: string;
   onTimeframeChange: (tf: string) => void;
+  /** Renders a notice that this instrument is not on a live feed. */
+  dataNotice?: string | null;
 }
 
 export const TradingViewChart: React.FC<TradingViewChartProps> = ({
@@ -29,6 +32,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
   entryPrice,
   timeframe,
   onTimeframeChange,
+  dataNotice = null,
 }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -88,6 +92,12 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     chartRef.current = chart;
 
     // Candlestick Series
+    //
+    // The price scale is configured from the instrument's own precision. Without
+    // this the library default is used, which suits a four-figure asset like
+    // BTCUSDT and collapses a sub-1.00 pair such as EURUSD or DOGEUSDT into
+    // repeated axis labels. This was the main reason some instruments looked
+    // blank or wrong while Bitcoin looked correct.
     const candleSeries = chart.addCandlestickSeries({
       upColor: "#10b981",
       downColor: "#f43f5e",
@@ -95,6 +105,11 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
       borderDownColor: "#f43f5e",
       wickUpColor: "#10b981",
       wickDownColor: "#f43f5e",
+      priceFormat: {
+        type: "price",
+        precision: asset.digits,
+        minMove: Number(`1e-${asset.digits}`),
+      },
     });
     candleSeriesRef.current = candleSeries;
 
@@ -130,7 +145,12 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     });
     ema200SeriesRef.current = ema200Series;
 
-    // Resize Observer
+    // Resize handling.
+    //
+    // A ResizeObserver is used rather than only the window resize event because
+    // the chart is hidden behind mobile tabs and inside a collapsing sidebar.
+    // When it mounted at zero width the chart stayed blank: no window resize
+    // fires on a tab switch, so nothing ever corrected the size.
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         const isMobile = window.innerWidth < 640;
@@ -140,9 +160,16 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
         });
       }
     };
+
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(container);
     window.addEventListener("resize", handleResize);
+    // Apply once immediately: the container may have been measured before
+    // layout settled.
+    handleResize();
 
     return () => {
+      observer.disconnect();
       window.removeEventListener("resize", handleResize);
       if (chartRef.current) {
         chartRef.current.remove();
@@ -150,6 +177,19 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
       }
     };
   }, []);
+
+  // Price precision follows the instrument. Applying it as an option rather
+  // than recreating the series preserves the user's zoom and pan.
+  useEffect(() => {
+    if (!candleSeriesRef.current) return;
+    candleSeriesRef.current.applyOptions({
+      priceFormat: {
+        type: "price",
+        precision: asset.digits,
+        minMove: Number(`1e-${asset.digits}`),
+      },
+    });
+  }, [asset.symbol, asset.digits]);
 
   // Update Data
   useEffect(() => {
@@ -198,9 +238,22 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
       ema200SeriesRef.current.setData(showEMA ? ema200Data : []);
     }
 
-    // Fit Content
-    chartRef.current?.timeScale().fitContent();
+    // Fit content only when the instrument or timeframe changes. Doing it on
+    // every data refresh reset the user's zoom and pan roughly once a second,
+    // because candles arrive on a live tick.
   }, [candles, showEMA, showVolume]);
+
+  // Fit the visible range when the series being displayed changes, so the new
+  // instrument is shown in full without disturbing zoom on ordinary ticks.
+  const lastSeriesKey = useRef<string>("");
+  useEffect(() => {
+    const key = `${asset.symbol}:${timeframe}`;
+    if (lastSeriesKey.current === key) return;
+    lastSeriesKey.current = key;
+    if (candles.length > 0) {
+      chartRef.current?.timeScale().fitContent();
+    }
+  }, [asset.symbol, timeframe, candles.length]);
 
   // Apply SL / TP price lines on chart
   useEffect(() => {
@@ -263,6 +316,10 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
           ))}
         </div>
 
+        <span className="text-[10px] font-bold text-slate-500 tracking-wide uppercase hidden sm:inline">
+          {asset.symbol}
+        </span>
+
         {/* Indicators and Layers Toggles */}
         <div className="flex items-center gap-2">
           <button
@@ -293,6 +350,16 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
       {/* Chart Canvas */}
       <div className="relative w-full h-[480px]">
         <div ref={chartContainerRef} className="w-full h-full" />
+
+        {/* Stated plainly rather than letting a stale series pass for a live
+            market. Forex without a configured intraday feed is on a daily
+            reference rate, and the user should know that. */}
+        {dataNotice && (
+          <div className="absolute top-2 left-2 right-2 z-10 flex items-center gap-1.5 rounded-lg bg-amber-950/85 border border-amber-700/60 px-2.5 py-1.5 text-[10px] font-bold text-amber-300">
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            <span>{dataNotice}</span>
+          </div>
+        )}
       </div>
     </div>
   );

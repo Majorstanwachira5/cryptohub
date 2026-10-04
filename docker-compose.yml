@@ -1,4 +1,4 @@
-﻿services:
+services:
   cryptohub-app:
     build:
       context: .
@@ -16,7 +16,7 @@
     # container has to be handed these explicitly.
     env_file:
       - .env
-environment:
+    environment:
       - NODE_ENV=production
       - PORT=4000
       - HOSTNAME=0.0.0.0

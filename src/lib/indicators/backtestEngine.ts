@@ -256,16 +256,33 @@ function maxDrawdown(curve: number[]): number {
 export function runBacktest(
   config: BacktestConfig,
   timeframes: string[] = ["1H", "4H", "1D"],
-  barsPerTimeframe = 900
+  barsPerTimeframe = 900,
+  realSeries?: Partial<Record<string, Candle[]>>
 ): BacktestSummary {
   const perTimeframe: BacktestSummary["perTimeframe"] = {};
   const allTrades: BacktestTrade[] = [];
 
-  for (const timeframe of timeframes) {
+  const supplied = timeframes.filter((tf) => (realSeries?.[tf]?.length ?? 0) > 0);
+
+  // When real history is supplied the replay covers only the timeframes it
+  // actually contains. Padding the remainder with generated bars would report a
+  // pooled win rate that mixes measured prices with invented ones.
+  const scope = supplied.length > 0 ? supplied : timeframes;
+
+  for (const timeframe of scope) {
     const step = TIMEFRAME_SECONDS[timeframe] ?? 3600;
     const factor = Math.max(1, Math.round(step / TIMEFRAME_SECONDS["1H"]));
-    const base = buildReplaySeries(config, barsPerTimeframe * factor, timeframe);
-    const series = factor > 1 ? aggregateCandles(base, factor) : base;
+
+    const real = realSeries?.[timeframe];
+    const series =
+      real && real.length > 0
+        ? real
+        : factor > 1
+          ? aggregateCandles(
+              buildReplaySeries(config, barsPerTimeframe * factor, timeframe),
+              factor
+            )
+          : buildReplaySeries(config, barsPerTimeframe * factor, timeframe);
 
     const result = replayTimeframe(config, series);
     const stats = summarizeTrades(result.trades);

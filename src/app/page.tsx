@@ -25,7 +25,7 @@ import { LedgerModal } from "@/components/LedgerModal";
 import { AuthModal } from "@/components/AuthModal";
 import { RiskQuizModal } from "@/components/RiskQuizModal";
 import { AdminModal } from "@/components/AdminModal";
-import { DEFAULT_ASSETS, generateCandleHistory } from "@/lib/market/assets";
+import { DEFAULT_ASSETS } from "@/lib/market/assets";
 import {
   MarketAsset,
   Candle,
@@ -74,8 +74,6 @@ function TradingPlatformContent() {
   const tradesRef = React.useRef<Trade[]>([]);
   const accountTypeRef = React.useRef<AccountType>("DEMO");
   const selectedAssetRef = React.useRef(selectedAsset);
-  // Track assigned outcome trajectories for demo trades (advocates strongly for profits ~80% vs 20% losses)
-  const demoTradeTargetMap = React.useRef<Map<string, "WIN" | "LOSS">>(new Map());
 
   // Keep refs synchronized
   useEffect(() => { tradesRef.current = trades; }, [trades]);
@@ -94,16 +92,90 @@ function TradingPlatformContent() {
 
   const { showToast } = useToast();
 
-  // Load candles for active asset
+  // Which feed the current series came from, and whether it is a live print or
+  // a delayed reference rate. Surfaced in the UI rather than assumed.
+  const [marketDelayed, setMarketDelayed] = useState<boolean>(true);
+
+  /** The interval the feed actually returned, and whether it matched the request. */
+  const [candleResolution, setCandleResolution] = useState<{
+    interval: string;
+    honoured: boolean;
+  }>({ interval: "", honoured: true });
+
+  /** Refreshes prices for every instrument so the lists stay live. */
+  const fetchTicker = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await authFetch("/api/market/ticker");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!Array.isArray(data.assets)) return;
+
+      setAssets(data.assets);
+      setSelectedAsset((prev) => {
+        const live = data.assets.find((a: MarketAsset) => a.symbol === prev.symbol);
+        return live ? { ...live, currentPrice: prev.currentPrice || live.currentPrice } : prev;
+      });
+    } catch (err) {
+      console.error("Failed to load ticker:", err);
+    }
+  }, [isAuthenticated]);
+
+  // Real market data.
+  //
+  // Candles and prices come from /api/market, which resolves them from Binance
+  // for crypto and from a configured intraday feed for forex. They used to be
+  // generated locally by a seeded random walk anchored to a hardcoded price.
+  const fetchMarketSeries = useCallback(async () => {
+    if (!isAuthenticated) return;
+
+    try {
+      const res = await authFetch(
+        `/api/market/candles?symbol=${encodeURIComponent(selectedAsset.symbol)}&timeframe=${encodeURIComponent(timeframe)}`
+      );
+      if (!res.ok) return;
+
+      const data = await res.json();
+      if (!Array.isArray(data.candles)) return;
+
+      setCandles(data.candles);
+      setMarketDelayed(Boolean(data.delayed));
+      // A daily reference series drawn under a 1H label would misrepresent its
+      // resolution, so the chart states the interval it actually received.
+      setCandleResolution({
+        interval: data.interval,
+        honoured: data.timeframeHonoured !== false,
+      });
+
+      // Keep the selected asset's live price in step with the series.
+      if (typeof data.price === "number" && Number.isFinite(data.price)) {
+        selectedAssetRef.current = { ...selectedAssetRef.current, currentPrice: data.price };
+        setSelectedAsset((prev) => ({ ...prev, currentPrice: data.price }));
+        setAssets((prev) =>
+          prev.map((a) => (a.symbol === data.symbol ? { ...a, currentPrice: data.price } : a))
+        );
+      }
+    } catch (err) {
+      console.error("Failed to load market series:", err);
+    }
+  }, [isAuthenticated, selectedAsset.symbol, timeframe]);
+
+  // Load candles whenever the instrument or timeframe changes, and once the
+  // session exists.
   useEffect(() => {
-    const isForex = selectedAsset.assetClass === "FOREX";
-    const initialCandles = generateCandleHistory(
-      selectedAsset.currentPrice,
-      isForex ? 0.002 : 0.015,
-      100
-    );
-    setCandles(initialCandles);
-  }, [selectedAsset.symbol]);
+    fetchMarketSeries();
+  }, [fetchMarketSeries]);
+
+  // Refresh the live quote on a short interval so the header price tracks the
+  // market. The series itself only changes when the instrument or timeframe
+  // changes, which keeps the user's zoom intact.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const timer = setInterval(() => {
+      fetchTicker();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [isAuthenticated, fetchTicker]);
 
   // Fetch Balance & User Profile for specified accountType
   const fetchBalanceAndUser = useCallback(
@@ -264,85 +336,62 @@ function TradingPlatformContent() {
     return () => clearInterval(timer);
   }, [fetchPrediction]);
 
-  // Real-time Dynamic Tick Engine with Realistic Drift, Auto-TP Win & Auto-SL Loss
+  // Live price feed and mark-to-market.
+  //
+  // Prices are read from the market feed, not generated locally. This engine
+  // previously produced its own movement with a random walk, and on DEMO
+  // accounts that walk was rigged: each trade was assigned an outcome from a
+  // hash of its id at 80% win / 20% loss, winning positions were steered toward
+  // take profit, and an explicit clamp stopped the price ever reaching the stop
+  // loss on a "winning" trade. That has been removed. Positions now mark to
+  // market on real quotes and auto TP/SL fires only when the market actually
+  // reaches the level.
   useEffect(() => {
-    const interval = setInterval(() => {
-      const isForex = selectedAsset.assetClass === "FOREX";
-      const tickVolatility = isForex ? 0.00008 : selectedAsset.currentPrice * 0.0003;
+    let cancelled = false;
+    const symbol = selectedAsset.symbol;
+    const digits = selectedAsset.digits;
 
-      // Read from refs to avoid stale closures & unnecessary re-subscriptions
-      const currentTrades = tradesRef.current;
-      const currentAccountType = accountTypeRef.current;
+    async function pollPrice() {
+      let price: number | undefined;
 
-      // Find active trade for current symbol
-      const activeTrade = currentTrades.find(
-        (t) => t.status === "OPEN" && t.symbol === selectedAsset.symbol
-      );
+      try {
+        const res = await authFetch("/api/market/ticker");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data.assets)) return;
+        const match = data.assets.find((a: MarketAsset) => a.symbol === symbol);
+        if (!match) return;
 
-      let delta = 0;
+        const next = match.currentPrice;
+        if (cancelled || typeof next !== "number" || !Number.isFinite(next)) return;
 
-      // In Demo mode, strongly advocate for profits (~80% wins vs 20% losses)
-      if (currentAccountType === "DEMO" && activeTrade) {
-        if (!demoTradeTargetMap.current.has(activeTrade.id)) {
-          // Deterministic hash on trade ID: 80% WIN vs 20% LOSS
-          let hash = 0;
-          for (let i = 0; i < activeTrade.id.length; i++) {
-            hash = (hash << 5) - hash + activeTrade.id.charCodeAt(i);
-            hash |= 0;
-          }
-          const score = Math.abs(hash) % 100;
-          const isWin = score < 80;
-          demoTradeTargetMap.current.set(activeTrade.id, isWin ? "WIN" : "LOSS");
-        }
-
-        const target = demoTradeTargetMap.current.get(activeTrade.id);
-
-        if (target === "WIN") {
-          // Strong progressive drift towards Take Profit with natural candlestick oscillations
-          const isLong = activeTrade.direction === "LONG";
-          const drift = isLong ? tickVolatility * 0.75 : -tickVolatility * 0.75;
-          const noise = (Math.random() - (isLong ? 0.44 : 0.56)) * tickVolatility;
-          let candidatePrice = selectedAsset.currentPrice + drift + noise;
-
-          // Support / Resistance bounce: Never let random noise hit Stop Loss on a winning setup
-          if (activeTrade.stopLoss && activeTrade.entryPrice) {
-            const buffer = Math.abs(activeTrade.entryPrice - activeTrade.stopLoss) * 0.35;
-            if (isLong) {
-              const floor = activeTrade.stopLoss + buffer;
-              if (candidatePrice < floor) {
-                candidatePrice = floor + Math.abs(noise);
-              }
-            } else {
-              const ceiling = activeTrade.stopLoss - buffer;
-              if (candidatePrice > ceiling) {
-                candidatePrice = ceiling - Math.abs(noise);
-              }
-            }
-          }
-          delta = candidatePrice - selectedAsset.currentPrice;
-        } else {
-          // Controlled LOSS setup (20% of demo trades): tests Stop Loss to demonstrate risk containment
-          const isLong = activeTrade.direction === "LONG";
-          const drift = isLong ? -tickVolatility * 0.70 : tickVolatility * 0.70;
-          const noise = (Math.random() - (isLong ? 0.55 : 0.45)) * tickVolatility;
-          delta = drift + noise;
-        }
-      } else {
-        // Natural market oscillation when no trade or in Real mode
-        const noise = (Math.random() - 0.495) * tickVolatility;
-        delta = noise;
+        price = next;
+        setAssets(data.assets);
+        setSelectedAsset((prev) =>
+          prev.symbol === symbol ? { ...prev, currentPrice: next } : prev
+        );
+        setMarketDelayed(Boolean(data.delayed?.includes(symbol)));
+      } catch (err) {
+        // A feed outage must not invent a price. The last known quote stands
+        // until the next successful read.
+        console.warn("Price poll failed:", err);
+        return;
       }
 
-      const newPrice = Number(
-        Math.max(0.0001, selectedAsset.currentPrice + delta).toFixed(
-          selectedAsset.digits
-        )
-      );
+      if (cancelled || price === undefined) return;
 
-      setSelectedAsset((prev) => ({
-        ...prev,
-        currentPrice: newPrice,
-      }));
+      const newPrice = Number(Math.max(0.0001, price).toFixed(digits));
+      const currentAccountType = accountTypeRef.current;
+
+      // Update the live bar so the chart's most recent candle tracks the quote.
+      setCandles((prevCandles) => {
+        if (prevCandles.length === 0) return prevCandles;
+        const lastCandle = { ...prevCandles[prevCandles.length - 1] };
+        lastCandle.close = newPrice;
+        if (newPrice > lastCandle.high) lastCandle.high = newPrice;
+        if (newPrice < lastCandle.low) lastCandle.low = newPrice;
+        return [...prevCandles.slice(0, -1), lastCandle];
+      });
 
       // Update last candle bar
       setCandles((prevCandles) => {
@@ -386,7 +435,6 @@ function TradingPlatformContent() {
 
             if (reachedTP && !closingTradeIds.current.has(t.id)) {
               closingTradeIds.current.add(t.id);
-              demoTradeTargetMap.current.delete(t.id);
               const exitP = t.takeProfit!;
               setTimeout(() => {
                 handleCloseTrade(t.id, exitP);
@@ -408,7 +456,6 @@ function TradingPlatformContent() {
 
             if (reachedSL && !closingTradeIds.current.has(t.id)) {
               closingTradeIds.current.add(t.id);
-              demoTradeTargetMap.current.delete(t.id);
               const exitP = t.stopLoss!;
               setTimeout(() => {
                 handleCloseTrade(t.id, exitP);
@@ -454,11 +501,18 @@ function TradingPlatformContent() {
 
         return updated;
       });
-    }, 1200);
+    }
 
-    return () => clearInterval(interval);
-    // Only re-subscribe when the asset changes — trades/accountType read via refs
-  }, [selectedAsset.symbol, selectedAsset.currentPrice, selectedAsset.digits, selectedAsset.assetClass]);
+    // Poll often enough to feel live. The server caches quotes for ten seconds,
+    // so a shorter client interval would only add requests.
+    pollPrice();
+    const interval = setInterval(pollPrice, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [isAuthenticated, selectedAsset.symbol, selectedAsset.digits]);
 
   /**
    * Sign out. The token is discarded on the server's terms and here too, and any
@@ -537,7 +591,6 @@ function TradingPlatformContent() {
         setBalance(data.balance);
         setTrades([]);
         tradesRef.current = [];
-        demoTradeTargetMap.current.clear();
         await fetchPositions("DEMO");
         showToast("success", "Demo Balance Reset", "$10,000.00 virtual capital reloaded.");
       }
@@ -594,7 +647,6 @@ function TradingPlatformContent() {
 
   // Close Trade Handler
   const handleCloseTrade = async (tradeId: string, currentPrice: number) => {
-    demoTradeTargetMap.current.delete(tradeId);
     const activeAcct = accountTypeRef.current;
     try {
       const res = await authFetch("/api/trade/close", {
@@ -800,14 +852,23 @@ function TradingPlatformContent() {
                       return (
                         <div className={mobileTradeTab === "signals" ? "hidden md:block" : ""}>
                           <TradingViewChart
-                            asset={selectedAsset}
-                            candles={candles}
-                            stopLoss={chartStopLoss}
-                            takeProfit={chartTakeProfit}
-                            entryPrice={chartEntryPrice}
-                            timeframe={timeframe}
-                            onTimeframeChange={(tf) => setTimeframe(tf)}
-                          />
+asset={selectedAsset}
+              candles={candles}
+              stopLoss={chartStopLoss}
+              takeProfit={chartTakeProfit}
+              entryPrice={chartEntryPrice}
+              timeframe={timeframe}
+              onTimeframeChange={(tf) => setTimeframe(tf)}
+              dataNotice={
+                !candleResolution.honoured
+                  ? `The daily European Central Bank reference rate is the only forex history available, so this is a ${candleResolution.interval} chart regardless of the selected interval. Add TWELVE_DATA_API_KEY for intraday forex.`
+                  : marketDelayed
+                    ? selectedAsset.assetClass === "FOREX"
+                      ? "Forex is on the daily European Central Bank reference rate. Add TWELVE_DATA_API_KEY for live intraday forex."
+                      : "Live feed unavailable. Showing the last known quote."
+                    : null
+              }
+            />
                         </div>
                       );
                     })()}
